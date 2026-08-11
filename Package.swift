@@ -12,7 +12,10 @@ let package = Package(
         .library(name: "KVLoggingKit", targets: ["KVLoggingKit"]),
         .library(name: "KVLoggingSecurity", targets: ["KVLoggingSecurity"]),
         .library(name: "KVLoggingLocal", targets: ["KVLoggingLocal"]),
-        .library(name: "KVLoggingRemote", targets: ["KVLoggingRemote"])
+        .library(name: "KVLoggingRemote", targets: ["KVLoggingRemote"]),
+        .library(name: "KVLoggingTesting", targets: ["KVLoggingTesting"]),
+        .library(name: "KVLoggingUIKit", targets: ["KVLoggingUIKit"]),
+        .library(name: "KVLoggingSwiftUI", targets: ["KVLoggingSwiftUI"])
     ],
     targets: [
         .target(name: "KVLoggingKit"),
@@ -24,6 +27,18 @@ let package = Package(
         .target(
             name: "KVLoggingRemote",
             dependencies: ["KVLoggingKit", "KVLoggingSecurity"]
+        ),
+        .target(
+            name: "KVLoggingTesting",
+            dependencies: ["KVLoggingKit"]
+        ),
+        .target(
+            name: "KVLoggingUIKit",
+            dependencies: ["KVLoggingKit"]
+        ),
+        .target(
+            name: "KVLoggingSwiftUI",
+            dependencies: ["KVLoggingKit"]
         ),
         .testTarget(
             name: "KVLoggingKitTests",
@@ -40,6 +55,10 @@ let package = Package(
         .testTarget(
             name: "KVLoggingRemoteTests",
             dependencies: ["KVLoggingKit", "KVLoggingSecurity", "KVLoggingRemote"]
+        ),
+        .testTarget(
+            name: "KVLoggingTestingTests",
+            dependencies: ["KVLoggingKit", "KVLoggingTesting"]
         )
     ],
     swiftLanguageModes: [.v6]

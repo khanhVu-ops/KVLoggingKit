@@ -120,10 +120,17 @@ public actor RollingFileDestination: LogDestination {
         }
 
         let handle = try FileHandle(forWritingTo: fileURL)
-        defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: data)
-        try handle.synchronize()
+        if #available(iOS 13.4, *) {
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+        } else {
+            defer { handle.closeFile() }
+            handle.seekToEndOfFile()
+            handle.write(data)
+            handle.synchronizeFile()
+        }
     }
 
     private func pruneFiles() throws {
