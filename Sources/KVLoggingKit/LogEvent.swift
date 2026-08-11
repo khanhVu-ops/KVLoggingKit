@@ -89,4 +89,20 @@ public struct LogEvent: Codable, Equatable, Identifiable, Sendable {
             source: source
         )
     }
+
+    internal func replacing(
+        message: String? = nil,
+        metadata: LogMetadata? = nil
+    ) -> Self {
+        .init(
+            id: id,
+            timestamp: timestamp,
+            level: level,
+            message: message ?? self.message,
+            category: category,
+            metadata: metadata ?? self.metadata,
+            error: error,
+            source: source
+        )
+    }
 }
