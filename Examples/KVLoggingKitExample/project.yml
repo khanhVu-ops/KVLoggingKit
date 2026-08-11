@@ -47,6 +47,14 @@ targets:
       - path: UIKitExample
     info:
       path: UIKitExample/Info.plist
+      properties:
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneClassName: UIWindowScene
+                UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.khanhvu.KVLoggingKit.UIKitExample
