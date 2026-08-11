@@ -9,7 +9,9 @@
 /* Begin PBXBuildFile section */
 		053819C2EB3206CA9EDD1D3B /* SampleError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85CB03E0F7DE44AA165FC940 /* SampleError.swift */; };
 		05D773173A6CAF671D2F4FF8 /* ExampleSupport.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		1A3E393A84CB63962C6D651E /* LoggingExampleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFF5862686DFB5271C3500C4 /* LoggingExampleView.swift */; };
 		27CBCB3DCF0CF897B40CD32E /* ExampleSupport.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		3B93DF6C64D2D72E0B426F22 /* SwiftUIExampleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D775EB1AED8F5620465CBB97 /* SwiftUIExampleApp.swift */; };
 		3C1FE5A9ADA970235BFB0EE6 /* KVLoggingUIKit in Frameworks */ = {isa = PBXBuildFile; productRef = BDEEA0D1D53BCFC7637E2B19 /* KVLoggingUIKit */; };
 		3D3330957A6DB766AD93F7BD /* KVLoggingLocal in Frameworks */ = {isa = PBXBuildFile; productRef = 68361C9FB934435EB5A47BC1 /* KVLoggingLocal */; };
 		49A237993A476B1DE86D3CFD /* ExampleSupport.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -100,7 +102,9 @@
 		54A8FAD335C5D170B07AF3BB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		60F4A5174833134CAB2B59F4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		85CB03E0F7DE44AA165FC940 /* SampleError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleError.swift; sourceTree = "<group>"; };
+		AFF5862686DFB5271C3500C4 /* LoggingExampleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggingExampleView.swift; sourceTree = "<group>"; };
 		C50977CFC57386627D0F15A9 /* ExampleLoggingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleLoggingService.swift; sourceTree = "<group>"; };
+		D775EB1AED8F5620465CBB97 /* SwiftUIExampleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIExampleApp.swift; sourceTree = "<group>"; };
 		E2D1669E9B5829D10793573D /* LoggingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggingViewController.swift; sourceTree = "<group>"; };
 		E4CA826AF75291FABD3CFF97 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -169,6 +173,8 @@
 			isa = PBXGroup;
 			children = (
 				54A8FAD335C5D170B07AF3BB /* Info.plist */,
+				AFF5862686DFB5271C3500C4 /* LoggingExampleView.swift */,
+				D775EB1AED8F5620465CBB97 /* SwiftUIExampleApp.swift */,
 			);
 			path = SwiftUIExample;
 			sourceTree = "<group>";
@@ -352,6 +358,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A3E393A84CB63962C6D651E /* LoggingExampleView.swift in Sources */,
+				3B93DF6C64D2D72E0B426F22 /* SwiftUIExampleApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
