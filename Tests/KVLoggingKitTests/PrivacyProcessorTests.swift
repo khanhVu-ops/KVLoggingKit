@@ -55,4 +55,25 @@ final class PrivacyProcessorTests: XCTestCase {
         XCTAssertEqual(result?.metadata["app_version"]?.value, .string("1.0"))
         XCTAssertEqual(result?.metadata["environment"]?.value, .string("staging"))
     }
+
+    func testDeviceContextAddsAppOSAndSessionMetadata() async {
+        let processor = DeviceContextProcessor(
+            appVersion: "2.1",
+            appBuild: "87",
+            osVersion: "iOS 18.0",
+            sessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
+        )
+
+        let result = await processor.process(
+            LogEvent(level: .info, message: "launch")
+        )
+
+        XCTAssertEqual(result?.metadata["app_version"]?.value, .string("2.1"))
+        XCTAssertEqual(result?.metadata["app_build"]?.value, .string("87"))
+        XCTAssertEqual(result?.metadata["os_version"]?.value, .string("iOS 18.0"))
+        XCTAssertEqual(
+            result?.metadata["session_id"]?.value,
+            .string("00000000-0000-0000-0000-000000000123")
+        )
+    }
 }
