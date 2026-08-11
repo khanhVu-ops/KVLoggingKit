@@ -18,9 +18,12 @@
 		49A237993A476B1DE86D3CFD /* ExampleSupport.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		4B8A9A95BA490BBBE0129B10 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D57015AB90FAA1DB43A51A1 /* SceneDelegate.swift */; };
 		4EDA9CE4A9F295FE1AE6E07E /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4CA826AF75291FABD3CFF97 /* AppDelegate.swift */; };
+		50C297EE172F62B66E96A81D /* KVLoggingNetwork in Frameworks */ = {isa = PBXBuildFile; productRef = 8974DD468A1335C1AA382BB2 /* KVLoggingNetwork */; };
 		5C041B118AA27115C8A4AB63 /* MockLogTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D2089A9160F8C8F99767435 /* MockLogTransport.swift */; };
 		5FEEA8D3E68347CD78465244 /* ExampleSupport.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; };
 		63E383B7F0F562572EAFA210 /* KVLoggingKit in Frameworks */ = {isa = PBXBuildFile; productRef = D79897B386AAEE241E7EF3BC /* KVLoggingKit */; };
+		71930933105B982BA8F5DF74 /* ExampleAPIStub.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96E96CF4FD6C603D55C2223 /* ExampleAPIStub.swift */; };
+		7DDD0FFE8671AB96E9C1DDC5 /* KVLoggingConsole in Frameworks */ = {isa = PBXBuildFile; productRef = FC0009FBCDC26688F88D588C /* KVLoggingConsole */; };
 		84C71F6250D6520E2CA13491 /* ExampleLoggingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D030D405BB5B779D178835 /* ExampleLoggingServiceTests.swift */; };
 		88DAB96FBEBB52BE3E74F30A /* ExampleSupport.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; };
 		A11C0163FDF36F2DA23CA0B0 /* KVLoggingSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 404EC62590215A3CB82D3FC8 /* KVLoggingSwiftUI */; };
@@ -28,6 +31,7 @@
 		B9A232923DFC235B44AF81F1 /* ExampleLoggingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50977CFC57386627D0F15A9 /* ExampleLoggingService.swift */; };
 		C9D5C7720C22EE2ED8C5E127 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 18BDB875BF0D197D31CA0B1B /* LaunchScreen.storyboard */; };
 		D61C2E1CF2707EEB50F65FA7 /* KVLoggingSecurity in Frameworks */ = {isa = PBXBuildFile; productRef = 106690E07B7DE4AD50E4CE91 /* KVLoggingSecurity */; };
+		E59AEE4DE0A06587B86D4881 /* ExampleNetworking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E459C32D09DF9FB8071AE1E /* ExampleNetworking.swift */; };
 		F05EB737457B64645E2D6257 /* LoggingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2D1669E9B5829D10793573D /* LoggingViewController.swift */; };
 		F32EBD55824D43640746CA15 /* ExampleSupport.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; };
 /* End PBXBuildFile section */
@@ -103,8 +107,10 @@
 		4C4F43251F9E1D9F54421724 /* ExampleSupportTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ExampleSupportTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D2089A9160F8C8F99767435 /* MockLogTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockLogTransport.swift; sourceTree = "<group>"; };
 		54A8FAD335C5D170B07AF3BB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5E459C32D09DF9FB8071AE1E /* ExampleNetworking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleNetworking.swift; sourceTree = "<group>"; };
 		60F4A5174833134CAB2B59F4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		85CB03E0F7DE44AA165FC940 /* SampleError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleError.swift; sourceTree = "<group>"; };
+		A96E96CF4FD6C603D55C2223 /* ExampleAPIStub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleAPIStub.swift; sourceTree = "<group>"; };
 		AFF5862686DFB5271C3500C4 /* LoggingExampleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggingExampleView.swift; sourceTree = "<group>"; };
 		C50977CFC57386627D0F15A9 /* ExampleLoggingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleLoggingService.swift; sourceTree = "<group>"; };
 		D775EB1AED8F5620465CBB97 /* SwiftUIExampleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIExampleApp.swift; sourceTree = "<group>"; };
@@ -121,6 +127,8 @@
 				D61C2E1CF2707EEB50F65FA7 /* KVLoggingSecurity in Frameworks */,
 				3D3330957A6DB766AD93F7BD /* KVLoggingLocal in Frameworks */,
 				A64F7FA4441EA114C72FB01E /* KVLoggingRemote in Frameworks */,
+				50C297EE172F62B66E96A81D /* KVLoggingNetwork in Frameworks */,
+				7DDD0FFE8671AB96E9C1DDC5 /* KVLoggingConsole in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -225,7 +233,9 @@
 		CEF7916476D2A5CC183C7F37 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				A96E96CF4FD6C603D55C2223 /* ExampleAPIStub.swift */,
 				C50977CFC57386627D0F15A9 /* ExampleLoggingService.swift */,
+				5E459C32D09DF9FB8071AE1E /* ExampleNetworking.swift */,
 				4D2089A9160F8C8F99767435 /* MockLogTransport.swift */,
 				85CB03E0F7DE44AA165FC940 /* SampleError.swift */,
 			);
@@ -274,6 +284,8 @@
 				106690E07B7DE4AD50E4CE91 /* KVLoggingSecurity */,
 				68361C9FB934435EB5A47BC1 /* KVLoggingLocal */,
 				DF02B8B310A96BC606E29DFC /* KVLoggingRemote */,
+				8974DD468A1335C1AA382BB2 /* KVLoggingNetwork */,
+				FC0009FBCDC26688F88D588C /* KVLoggingConsole */,
 			);
 			productName = ExampleSupport;
 			productReference = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */;
@@ -381,7 +393,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				71930933105B982BA8F5DF74 /* ExampleAPIStub.swift in Sources */,
 				B9A232923DFC235B44AF81F1 /* ExampleLoggingService.swift in Sources */,
+				E59AEE4DE0A06587B86D4881 /* ExampleNetworking.swift in Sources */,
 				5C041B118AA27115C8A4AB63 /* MockLogTransport.swift in Sources */,
 				053819C2EB3206CA9EDD1D3B /* SampleError.swift in Sources */,
 			);
@@ -788,6 +802,10 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = KVLoggingLocal;
 		};
+		8974DD468A1335C1AA382BB2 /* KVLoggingNetwork */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KVLoggingNetwork;
+		};
 		BDEEA0D1D53BCFC7637E2B19 /* KVLoggingUIKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = KVLoggingUIKit;
@@ -799,6 +817,10 @@
 		DF02B8B310A96BC606E29DFC /* KVLoggingRemote */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = KVLoggingRemote;
+		};
+		FC0009FBCDC26688F88D588C /* KVLoggingConsole */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KVLoggingConsole;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

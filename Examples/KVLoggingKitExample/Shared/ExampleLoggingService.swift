@@ -1,4 +1,5 @@
 import Foundation
+import KVLoggingConsole
 import KVLoggingKit
 import KVLoggingLocal
 import KVLoggingRemote
@@ -190,6 +191,19 @@ public struct ExampleLoggingService: Sendable {
                 retry: retryPolicy
             )
         )
+        // Installed before the client is built so the console store can be
+        // added as a destination. When the policy denies access this returns
+        // nil and the destination list is simply shorter.
+        var destinations: [any LogDestination] = [localFiles, remote]
+        if let consoleStore = LogConsole.install(
+            policy: .debugOrBundleIdentifiers([
+                "com.khanhvu.KVLoggingKit.SwiftUIExample",
+                "com.khanhvu.KVLoggingKit.UIKitExample"
+            ])
+        ) {
+            destinations.append(consoleStore)
+        }
+
         let logger = LogClient(
             configuration: .init(
                 minimumLevel: .debug,
@@ -197,22 +211,23 @@ public struct ExampleLoggingService: Sendable {
                     DeviceContextProcessor(),
                     PrivacyProcessor.strict(
                         allowedMetadataKeys: [
-                            "app_version",
-                            "app_build",
-                            "os_version",
-                            "session_id",
                             "email",
                             "screen",
-                            "duration_ms"
+                            "duration_ms",
+                            "http_method",
+                            "http_host",
+                            "http_path",
+                            "http_status",
+                            "request_id",
+                            "response_bytes"
                         ]
                     )
                 ]
             ),
-            destinations: [
-                localFiles,
-                remote
-            ]
+            destinations: destinations
         )
+
+        ExampleNetworking.installCapture(logger: logger)
 
         return ExampleLoggingService(
             logger: logger,

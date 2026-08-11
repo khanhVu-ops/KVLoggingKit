@@ -1,4 +1,5 @@
 import ExampleSupport
+import KVLoggingConsole
 import KVLoggingSwiftUI
 import SwiftUI
 
@@ -9,6 +10,7 @@ struct LoggingExampleView: View {
     @State private var latestAction = "Ready"
 
     let service: ExampleLoggingService
+    private let networking = ExampleNetworking()
 
     var body: some View {
         NavigationStack {
@@ -88,6 +90,18 @@ struct LoggingExampleView: View {
             Button("Log a SwiftUI interaction", systemImage: "swift") {
                 logger.info("SwiftUI interaction selected", category: "ui")
                 latestAction = "Logged directly through @Environment(\\.logClient)."
+            }
+
+            Button("Call sample API", systemImage: "network") {
+                Task {
+                    await networking.performSampleCalls()
+                    latestAction = "Called three sample endpoints. Open the console to inspect them."
+                }
+            }
+
+            Button("Open debug console", systemImage: "ladybug") {
+                LogConsole.present()
+                latestAction = "Console opened. Shaking the device opens it too."
             }
         }
         .buttonStyle(.borderless)

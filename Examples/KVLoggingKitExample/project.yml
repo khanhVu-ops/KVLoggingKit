@@ -38,6 +38,10 @@ targets:
         product: KVLoggingLocal
       - package: KVLoggingKit
         product: KVLoggingRemote
+      - package: KVLoggingKit
+        product: KVLoggingNetwork
+      - package: KVLoggingKit
+        product: KVLoggingConsole
 
   UIKitExample:
     type: application
