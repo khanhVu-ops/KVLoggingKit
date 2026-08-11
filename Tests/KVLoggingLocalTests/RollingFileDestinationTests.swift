@@ -111,6 +111,6 @@ final class RollingFileDestinationTests: XCTestCase {
 
     private func makeTemporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
-            .appending(path: "KVLoggingLocalTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appendingPathComponent("KVLoggingLocalTests-\(UUID().uuidString)", isDirectory: true)
     }
 }

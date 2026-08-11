@@ -19,7 +19,9 @@ public actor RemoteBatchDestination: LogDestination {
     }
 
     public func write(_ events: [LogEvent]) async throws {
-        pending.append(contentsOf: events.map { $0.redactedForRemote() })
+        pending.append(
+            contentsOf: events.map { $0.redactedForRemote(scrubbing: policy.redaction) }
+        )
 
         if pending.count >= policy.maxBatchSize {
             scheduledFlush?.cancel()
@@ -54,7 +56,11 @@ public actor RemoteBatchDestination: LogDestination {
             do {
                 try await sendWithRetry(batch)
             } catch {
+                // Queueing a batch the server will never accept only delays
+                // the batches behind it, so permanent failures are dropped.
+                guard error.isRetryableFailure else { continue }
                 try await queue.enqueue(batch)
+                try await queue.trim(to: policy.maxQueuedBatches)
             }
         }
 
@@ -69,6 +75,12 @@ public actor RemoteBatchDestination: LogDestination {
                 try await sendWithRetry(batch.events)
                 try await queue.remove(id: batch.id)
             } catch {
+                // A permanent rejection would otherwise block every batch
+                // behind it forever, so drop it and keep the queue moving.
+                if !error.isRetryableFailure {
+                    try await queue.remove(id: batch.id)
+                    continue
+                }
                 return
             }
         }
@@ -82,6 +94,7 @@ public actor RemoteBatchDestination: LogDestination {
                 try await transport.send(events)
                 return
             } catch {
+                guard error.isRetryableFailure else { throw error }
                 guard attempt < policy.retry.maximumAttempts else { throw error }
                 if delay > 0 {
                     let nanoseconds = UInt64(min(delay, 86_400) * 1_000_000_000)

@@ -124,7 +124,7 @@ final class RemoteBatchDestinationTests: XCTestCase {
 
     func testDiskQueueEncryptsAndRemovesOldestBatch() async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appending(path: "KVLoggingRemoteTests-\(UUID().uuidString)")
+            .appendingPathComponent("KVLoggingRemoteTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let key = try StaticLogEncryptionKeyProvider(
             keyData: Data(repeating: 8, count: 32)

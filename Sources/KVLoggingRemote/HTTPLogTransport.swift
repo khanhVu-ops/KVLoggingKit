@@ -1,9 +1,22 @@
 import Foundation
 import KVLoggingKit
 
-public enum HTTPLogTransportError: Error, Equatable {
+public enum HTTPLogTransportError: Error, Equatable, RetryableError {
     case invalidResponse
     case unacceptableStatusCode(Int)
+
+    public var isRetryable: Bool {
+        switch self {
+        case .invalidResponse:
+            return true
+        case let .unacceptableStatusCode(code):
+            // 4xx means the request itself is wrong — a bad key, a payload the
+            // server refuses — and will fail the same way next time. 408 and
+            // 429 are the exceptions that do clear on their own.
+            guard (400..<500).contains(code) else { return true }
+            return code == 408 || code == 429
+        }
+    }
 }
 
 public struct HTTPLogTransport: LogTransport, @unchecked Sendable {

@@ -1,9 +1,15 @@
 import Foundation
 import Security
 
+/// Reads the log encryption key from Keychain, caching it in memory.
+///
+/// The cache matters: the cipher asks for the key on every seal, so without it
+/// each encrypted log line costs a `SecItemCopyMatching` round trip.
 public final class KeychainLogEncryptionKeyProvider: LogEncryptionKeyProvider, @unchecked Sendable {
     private let service: String
     private let account: String
+    private let lock = NSLock()
+    private var cachedKey: Data?
 
     public init(
         service: String,
@@ -14,6 +20,30 @@ public final class KeychainLogEncryptionKeyProvider: LogEncryptionKeyProvider, @
     }
 
     public func keyData() throws -> Data {
+        lock.lock()
+        if let cachedKey {
+            lock.unlock()
+            return cachedKey
+        }
+        lock.unlock()
+
+        let key = try loadOrCreateKey()
+
+        lock.lock()
+        cachedKey = key
+        lock.unlock()
+
+        return key
+    }
+
+    /// Drops the cached copy. Only needed if the item is rotated out of band.
+    public func invalidateCache() {
+        lock.lock()
+        cachedKey = nil
+        lock.unlock()
+    }
+
+    private func loadOrCreateKey() throws -> Data {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -55,7 +85,7 @@ public final class KeychainLogEncryptionKeyProvider: LogEncryptionKeyProvider, @
         }
 
         if addStatus == errSecDuplicateItem {
-            return try keyData()
+            return try loadOrCreateKey()
         }
         return data
     }

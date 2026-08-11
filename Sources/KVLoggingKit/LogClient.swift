@@ -2,51 +2,109 @@ import Foundation
 
 private enum LogCommand: Sendable {
     case event(LogEvent)
+    /// Emitted by the debounce timer to close an open batch.
+    case tick
     case flush(CheckedContinuation<Void, Never>)
 }
 
 private actor LogWorker {
     private let processors: [any LogProcessor]
     private let destinations: [any LogDestination]
+    private let maxBatchSize: Int
+    private let batchIntervalNanoseconds: UInt64
     private let internalErrorHandler: (@Sendable (any Error) -> Void)?
+
+    private var batch: [LogEvent] = []
+    private var tickTask: Task<Void, Never>?
 
     init(
         processors: [any LogProcessor],
         destinations: [any LogDestination],
+        maxBatchSize: Int,
+        batchInterval: TimeInterval,
         internalErrorHandler: (@Sendable (any Error) -> Void)?
     ) {
         self.processors = processors
         self.destinations = destinations
+        self.maxBatchSize = maxBatchSize
+        self.batchIntervalNanoseconds = UInt64(max(0, batchInterval) * 1_000_000_000)
         self.internalErrorHandler = internalErrorHandler
+        self.batch.reserveCapacity(maxBatchSize)
     }
 
-    func consume(_ stream: AsyncStream<LogCommand>) async {
+    /// Runs until the client is deallocated and the stream finishes. It
+    /// deliberately does not check `Task.isCancelled`: the previous version
+    /// cancelled on `deinit` and dropped whatever was still buffered.
+    func consume(
+        _ stream: AsyncStream<LogCommand>,
+        continuation: AsyncStream<LogCommand>.Continuation
+    ) async {
         for await command in stream {
-            if Task.isCancelled { break }
-
             switch command {
             case let .event(event):
-                await process(event)
-            case let .flush(continuation):
+                await accept(event, continuation: continuation)
+            case .tick:
+                await writeBatch()
+            case let .flush(waiter):
+                await writeBatch()
                 await flushDestinations()
-                continuation.resume()
+                waiter.resume()
             }
+        }
+
+        // The stream only finishes once the client is gone; deliver the tail.
+        await writeBatch()
+        await flushDestinations()
+    }
+
+    private func accept(
+        _ event: LogEvent,
+        continuation: AsyncStream<LogCommand>.Continuation
+    ) async {
+        guard let processed = await process(event) else { return }
+
+        batch.append(processed)
+
+        if batch.count >= maxBatchSize {
+            await writeBatch()
+        } else {
+            scheduleTick(continuation: continuation)
         }
     }
 
-    private func process(_ initialEvent: LogEvent) async {
-        var currentEvent: LogEvent? = initialEvent
-
+    private func process(_ event: LogEvent) async -> LogEvent? {
+        var current: LogEvent? = event
         for processor in processors {
-            guard let event = currentEvent else { return }
-            currentEvent = await processor.process(event)
+            guard let value = current else { return nil }
+            current = await processor.process(value)
         }
+        return current
+    }
 
-        guard let event = currentEvent else { return }
+    /// One timer per burst, not per event. It routes the wake-up back through
+    /// the same channel so batching never reorders events against a flush.
+    private func scheduleTick(continuation: AsyncStream<LogCommand>.Continuation) {
+        guard tickTask == nil else { return }
+
+        tickTask = Task { [batchIntervalNanoseconds] in
+            try? await Task.sleep(nanoseconds: batchIntervalNanoseconds)
+            guard !Task.isCancelled else { return }
+            continuation.yield(.tick)
+        }
+    }
+
+    private func writeBatch() async {
+        tickTask?.cancel()
+        tickTask = nil
+
+        guard !batch.isEmpty else { return }
+
+        let events = batch
+        batch.removeAll(keepingCapacity: true)
 
         for destination in destinations {
             do {
-                try await destination.write([event])
+                try await destination.write(events)
             } catch {
                 internalErrorHandler?(error)
             }
@@ -64,6 +122,7 @@ private actor LogWorker {
     }
 }
 
+/// Entry point for logging. Calls are synchronous and never block on I/O.
 public final class LogClient: @unchecked Sendable {
     public static let disabled = LogClient(
         configuration: .init(minimumLevel: .critical),
@@ -71,10 +130,13 @@ public final class LogClient: @unchecked Sendable {
         isEnabled: false
     )
 
-    private let minimumLevel: LogLevel
     private let isEnabled: Bool
     private let commandContinuation: AsyncStream<LogCommand>.Continuation
     private let workerTask: Task<Void, Never>
+
+    private let levelLock = NSLock()
+    private var _minimumLevel: LogLevel
+    private var _droppedEventCount = 0
 
     public convenience init(
         configuration: LogConfiguration = .init(),
@@ -92,26 +154,59 @@ public final class LogClient: @unchecked Sendable {
         destinations: [any LogDestination],
         isEnabled: Bool
     ) {
-        self.minimumLevel = configuration.minimumLevel
+        self._minimumLevel = configuration.minimumLevel
         self.isEnabled = isEnabled
 
-        let stream = AsyncStream<LogCommand>.makeStream()
+        // Bounded so a logging storm cannot grow without limit. Overflow drops
+        // the oldest pending events, which are the least useful ones.
+        let stream = AsyncStream<LogCommand>.makeStream(
+            bufferingPolicy: .bufferingNewest(configuration.maximumBufferedEvents)
+        )
         commandContinuation = stream.continuation
 
         let worker = LogWorker(
             processors: configuration.processors,
             destinations: destinations,
+            maxBatchSize: configuration.maxBatchSize,
+            batchInterval: configuration.batchInterval,
             internalErrorHandler: configuration.internalErrorHandler
         )
         workerTask = Task {
-            await worker.consume(stream.stream)
+            await worker.consume(stream.stream, continuation: stream.continuation)
         }
     }
 
     deinit {
+        // Finish without cancelling so the worker drains what is still queued.
         commandContinuation.finish()
-        workerTask.cancel()
     }
+
+    // MARK: - Level
+
+    /// Adjustable at runtime, so a debug menu can raise verbosity in a build
+    /// that shipped at `.info` without relaunching.
+    public var minimumLevel: LogLevel {
+        get {
+            levelLock.lock()
+            defer { levelLock.unlock() }
+            return _minimumLevel
+        }
+        set {
+            levelLock.lock()
+            _minimumLevel = newValue
+            levelLock.unlock()
+        }
+    }
+
+    /// Events discarded because the buffer was full. Non-zero means the app is
+    /// logging faster than the destinations can drain.
+    public var droppedEventCount: Int {
+        levelLock.lock()
+        defer { levelLock.unlock() }
+        return _droppedEventCount
+    }
+
+    // MARK: - Logging
 
     public func log(
         _ level: LogLevel,
@@ -125,7 +220,7 @@ public final class LogClient: @unchecked Sendable {
     ) {
         guard isEnabled, level >= minimumLevel else { return }
 
-        commandContinuation.yield(
+        let result = commandContinuation.yield(
             .event(
                 LogEvent(
                     level: level,
@@ -137,6 +232,23 @@ public final class LogClient: @unchecked Sendable {
                 )
             )
         )
+
+        handle(result)
+    }
+
+    /// Overflow evicts the oldest queued command. If that command happens to be
+    /// a pending `flush`, its continuation has to be resumed here or the caller
+    /// awaits forever.
+    private func handle(_ result: AsyncStream<LogCommand>.Continuation.YieldResult) {
+        guard case let .dropped(command) = result else { return }
+
+        if case let .flush(waiter) = command {
+            waiter.resume()
+        } else {
+            levelLock.lock()
+            _droppedEventCount += 1
+            levelLock.unlock()
+        }
     }
 
     public func trace(
@@ -219,6 +331,7 @@ public final class LogClient: @unchecked Sendable {
         log(.critical, message(), category: category, metadata: metadata, error: error, file: file, function: function, line: line)
     }
 
+    /// Writes everything buffered and flushes each destination.
     public func flush() async {
         guard isEnabled else { return }
 
@@ -226,6 +339,8 @@ public final class LogClient: @unchecked Sendable {
             let result = commandContinuation.yield(.flush(continuation))
             if case .terminated = result {
                 continuation.resume()
+            } else {
+                handle(result)
             }
         }
     }

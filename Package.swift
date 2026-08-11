@@ -42,7 +42,7 @@ let package = Package(
         ),
         .testTarget(
             name: "KVLoggingKitTests",
-            dependencies: ["KVLoggingKit"]
+            dependencies: ["KVLoggingKit", "KVLoggingTesting"]
         ),
         .testTarget(
             name: "KVLoggingSecurityTests",

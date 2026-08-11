@@ -15,10 +15,38 @@ public struct LogSource: Codable, Equatable, Sendable {
 public struct LogError: Codable, Equatable, Sendable {
     public let type: String
     public let message: String
+    /// `NSError` domain. Present for every error, since Swift errors bridge.
+    public let domain: String?
+    /// `NSError` code. `URLError`, `POSIXError`, and friends put the useful
+    /// discriminator here.
+    public let code: Int?
 
     public init(_ error: any Error) {
-        type = String(reflecting: Swift.type(of: error))
+        let bridged = error as NSError
+        let reflected = String(reflecting: Swift.type(of: error))
+
+        // Errors that bridge to Cocoa report `NSError` as their dynamic type,
+        // which says nothing. Fall back to the domain in that case.
+        type = reflected == "NSError" ? bridged.domain : reflected
         message = String(describing: error)
+        domain = bridged.domain
+        code = bridged.code
+    }
+
+    private init(type: String, message: String, domain: String?, code: Int?) {
+        self.type = type
+        self.message = message
+        self.domain = domain
+        self.code = code
+    }
+
+    func redacted(scrubbing redaction: LogRedaction) -> Self {
+        .init(
+            type: type,
+            message: redaction.redacting(message),
+            domain: domain,
+            code: code
+        )
     }
 }
 
@@ -72,7 +100,16 @@ public struct LogEvent: Codable, Equatable, Identifiable, Sendable {
         self.source = source
     }
 
-    public func redactedForRemote() -> Self {
+    /// Strips everything a remote destination must not receive.
+    ///
+    /// Private metadata becomes `<redacted>`. The message and the error
+    /// description are scrubbed with `redaction`, because a caller that
+    /// interpolates a private value into the message text would otherwise send
+    /// it verbatim — declaring metadata private does nothing for the string it
+    /// was also pasted into.
+    public func redactedForRemote(
+        scrubbing redaction: LogRedaction = .default
+    ) -> Self {
         let sanitizedMetadata = metadata.mapValues { field in
             guard field.privacy == .private else { return field }
             return LogField(value: .string("<redacted>"), privacy: .private)
@@ -82,10 +119,10 @@ public struct LogEvent: Codable, Equatable, Identifiable, Sendable {
             id: id,
             timestamp: timestamp,
             level: level,
-            message: message,
+            message: redaction.redacting(message),
             category: category,
             metadata: sanitizedMetadata,
-            error: error,
+            error: error.map { $0.redacted(scrubbing: redaction) },
             source: source
         )
     }

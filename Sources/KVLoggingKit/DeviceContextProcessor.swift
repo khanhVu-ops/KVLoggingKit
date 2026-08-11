@@ -1,6 +1,15 @@
 import Foundation
 
 public struct DeviceContextProcessor: LogProcessor {
+    /// Keys this processor contributes. `PrivacyProcessor.strict` unions them
+    /// into its allowlist so device context is never dropped by accident.
+    public static let metadataKeys: Set<String> = [
+        "app_version",
+        "app_build",
+        "os_version",
+        "session_id"
+    ]
+
     private let metadata: LogMetadata
 
     public init(

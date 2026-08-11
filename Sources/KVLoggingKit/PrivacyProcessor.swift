@@ -1,41 +1,40 @@
 import Foundation
 
+/// Scrubs message text and, optionally, drops metadata keys outside an allowlist.
 public struct PrivacyProcessor: LogProcessor {
-    private struct Replacement: Sendable {
-        let pattern: String
-        let template: String
-    }
-
     private let allowedMetadataKeys: Set<String>?
-    private let replacements: [Replacement]
+    private let redaction: LogRedaction
 
-    private init(
-        allowedMetadataKeys: Set<String>?,
-        replacements: [Replacement]
+    public init(
+        allowedMetadataKeys: Set<String>? = nil,
+        redaction: LogRedaction = .default
     ) {
         self.allowedMetadataKeys = allowedMetadataKeys
-        self.replacements = replacements
+        self.redaction = redaction
     }
 
+    /// Scrubs messages but keeps every metadata key the caller supplied.
+    ///
+    /// Prefer this over ``strict(allowedMetadataKeys:)`` unless the app must
+    /// guarantee that no unexpected key ever reaches a destination: an
+    /// allowlist silently discards fields that processors add later, which
+    /// makes the pipeline order-sensitive.
+    public static let standard = PrivacyProcessor()
+
+    /// Drops every metadata key outside `allowedMetadataKeys`.
+    ///
+    /// The allowlist must also cover keys contributed by other processors —
+    /// `DeviceContextProcessor` adds `app_version`, `app_build`, `os_version`,
+    /// and `session_id` — and this processor has to run after them.
     public static func strict(
-        allowedMetadataKeys: Set<String>
+        allowedMetadataKeys: Set<String>,
+        redaction: LogRedaction = .default
     ) -> PrivacyProcessor {
         PrivacyProcessor(
-            allowedMetadataKeys: allowedMetadataKeys,
-            replacements: [
-                .init(
-                    pattern: #"(?i)bearer\s+[a-z0-9._~+/=-]+"#,
-                    template: "Bearer <redacted-token>"
-                ),
-                .init(
-                    pattern: #"(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"#,
-                    template: "<redacted-email>"
-                ),
-                .init(
-                    pattern: #"\+?[0-9][0-9\s().-]{7,}[0-9]"#,
-                    template: "<redacted-phone>"
-                )
-            ]
+            allowedMetadataKeys: allowedMetadataKeys.union(
+                DeviceContextProcessor.metadataKeys
+            ),
+            redaction: redaction
         )
     }
 
@@ -47,14 +46,9 @@ public struct PrivacyProcessor: LogProcessor {
             metadata = event.metadata
         }
 
-        let message = replacements.reduce(event.message) { result, replacement in
-            result.replacingOccurrences(
-                of: replacement.pattern,
-                with: replacement.template,
-                options: .regularExpression
-            )
-        }
-
-        return event.replacing(message: message, metadata: metadata)
+        return event.replacing(
+            message: redaction.redacting(event.message),
+            metadata: metadata
+        )
     }
 }
