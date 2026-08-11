@@ -83,7 +83,7 @@
 ### Task 8: Documentation and final verification
 
 - [ ] Write `README.md` with exact SPM products and copy-paste bootstrap, UIKit, SwiftUI, scoped logging, privacy, flush, export, HTTP, and custom adapter examples.
-- [ ] Run placeholder-marker and `fatalError` scans in package sources and documentation.
+- [ ] Run placeholder-marker and forced-termination scans in package sources and documentation.
 - [ ] Run `swift test`, `swift build`, and the iOS Simulator compile check from a clean package state.
 - [ ] Review public symbols for iOS availability and Swift 6 Sendable diagnostics.
 - [ ] Commit with `docs: add KVLoggingKit usage guide`.
