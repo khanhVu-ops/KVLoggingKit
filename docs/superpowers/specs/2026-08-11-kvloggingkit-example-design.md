@@ -11,7 +11,7 @@ The example lives under `Examples/KVLoggingKitExample` and contains one Xcode pr
 - `UIKitExample`: UIKit lifecycle, deployment target iOS 13.
 - `SwiftUIExample`: SwiftUI app lifecycle, deployment target iOS 16.
 
-Both targets compile shared files from `Shared` and reference package products through a local Swift package dependency pointing to the repository root.
+An internal `ExampleSupport` framework compiles the shared files and references package products through a local Swift package dependency pointing to the repository root. Both app targets depend on that framework.
 
 ```text
 Examples/KVLoggingKitExample/

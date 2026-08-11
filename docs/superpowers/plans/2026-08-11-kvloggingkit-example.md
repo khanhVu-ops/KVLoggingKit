@@ -4,7 +4,7 @@
 
 **Goal:** Add one buildable Xcode project with UIKit iOS 13 and SwiftUI iOS 16 example applications that demonstrate local, encrypted, privacy-safe, batched, offline-capable logging.
 
-**Architecture:** Both app targets compile a shared `ExampleLoggingService` and `MockLogTransport`. The service bootstraps real KVLoggingKit local and remote destinations, while the mock transport deterministically switches between successful in-memory delivery and offline errors.
+**Architecture:** An internal `ExampleSupport` framework compiles `ExampleLoggingService` and `MockLogTransport` once for both apps and the test target. The service bootstraps real KVLoggingKit local and remote destinations, while the mock transport deterministically switches between successful in-memory delivery and offline errors.
 
 **Tech Stack:** Swift 6, UIKit, SwiftUI, XcodeGen 2.45, XCTest, KVLoggingKit local package products.
 
@@ -14,7 +14,7 @@
 
 - `Examples/KVLoggingKitExample/project.yml`: XcodeGen source of truth for targets, schemes, deployment versions, and local package products.
 - `Examples/KVLoggingKitExample/KVLoggingKitExample.xcodeproj`: Generated project committed for users who do not have XcodeGen.
-- `Examples/KVLoggingKitExample/Shared/MockLogTransport.swift`: Actor-backed online/offline transport and delivered-batch snapshots.
+- `Examples/KVLoggingKitExample/Shared/MockLogTransport.swift`: Actor-backed online/offline transport in the `ExampleSupport` framework.
 - `Examples/KVLoggingKitExample/Shared/ExampleLoggingService.swift`: Logger bootstrap and example actions shared by both apps.
 - `Examples/KVLoggingKitExample/Shared/SampleError.swift`: Deterministic error used by sample events.
 - `Examples/KVLoggingKitExample/UIKitExample/*`: UIKit app and programmatic screen.
@@ -31,7 +31,7 @@
 
 - [ ] **Step 1: Define both app targets and the test target**
 
-Create `project.yml` with local package path `../..`, UIKit deployment `13.0`, SwiftUI deployment `16.0`, shared source membership, explicit Info.plists, and dependencies on the required KVLoggingKit products.
+Create `project.yml` with local package path `../..`, an iOS 13 `ExampleSupport` framework, UIKit deployment `13.0`, SwiftUI deployment `16.0`, explicit Info.plists, and dependencies on the required KVLoggingKit products.
 
 - [ ] **Step 2: Write failing behavior tests**
 

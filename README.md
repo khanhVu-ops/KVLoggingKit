@@ -23,6 +23,52 @@
 
 Add this directory as a local Swift package in Xcode, then select only the products required by the application target.
 
+## Run the examples
+
+Open `Examples/KVLoggingKitExample/KVLoggingKitExample.xcodeproj` in Xcode. The project references the package at the repository root, so it does not require a remote package URL or a logging backend.
+
+- Run the `UIKitExample` scheme on iOS 13 or later to see AppDelegate/SceneDelegate integration and `UIKitLoggingLifecycle`.
+- Run the `SwiftUIExample` scheme on iOS 16 or later to see Environment injection with `.kvLogging(_:)` and `@Environment(\.logClient)`.
+- The internal `ExampleSupport` framework is shared by both apps and has two behavior tests in the `ExampleSupportTests` scheme.
+
+Try the offline queue flow in either app:
+
+1. Tap **Go offline**.
+2. Tap **Generate sample logs** to create info, warning, error, and private-metadata events.
+3. Tap **Flush and replay queue** and confirm one encrypted batch remains queued.
+4. Tap **Go online**, then flush again. The queued count returns to zero and the delivered event count reaches four.
+5. Tap **Export encrypted local logs** to display the temporary export directory.
+
+The mock transport stores delivered batches in memory and never contacts an external service. Local rolling files and the offline disk queue use AES-GCM encryption; the live examples keep their encryption key in Keychain.
+
+Regenerate the committed project after changing `project.yml`:
+
+```bash
+xcodegen generate --spec Examples/KVLoggingKitExample/project.yml
+```
+
+Build or test from the command line:
+
+```bash
+xcodebuild -quiet \
+  -scheme ExampleSupportTests \
+  -project Examples/KVLoggingKitExample/KVLoggingKitExample.xcodeproj \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  test
+
+xcodebuild -quiet \
+  -scheme UIKitExample \
+  -project Examples/KVLoggingKitExample/KVLoggingKitExample.xcodeproj \
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO build
+
+xcodebuild -quiet \
+  -scheme SwiftUIExample \
+  -project Examples/KVLoggingKitExample/KVLoggingKitExample.xcodeproj \
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO build
+```
+
 ## Bootstrap
 
 ```swift
