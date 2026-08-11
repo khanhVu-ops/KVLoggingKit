@@ -9,13 +9,19 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .library(name: "KVLoggingKit", targets: ["KVLoggingKit"])
+        .library(name: "KVLoggingKit", targets: ["KVLoggingKit"]),
+        .library(name: "KVLoggingSecurity", targets: ["KVLoggingSecurity"])
     ],
     targets: [
         .target(name: "KVLoggingKit"),
+        .target(name: "KVLoggingSecurity"),
         .testTarget(
             name: "KVLoggingKitTests",
             dependencies: ["KVLoggingKit"]
+        ),
+        .testTarget(
+            name: "KVLoggingSecurityTests",
+            dependencies: ["KVLoggingSecurity"]
         )
     ],
     swiftLanguageModes: [.v6]
