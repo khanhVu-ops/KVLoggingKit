@@ -10,11 +10,16 @@ let package = Package(
     ],
     products: [
         .library(name: "KVLoggingKit", targets: ["KVLoggingKit"]),
-        .library(name: "KVLoggingSecurity", targets: ["KVLoggingSecurity"])
+        .library(name: "KVLoggingSecurity", targets: ["KVLoggingSecurity"]),
+        .library(name: "KVLoggingLocal", targets: ["KVLoggingLocal"])
     ],
     targets: [
         .target(name: "KVLoggingKit"),
         .target(name: "KVLoggingSecurity"),
+        .target(
+            name: "KVLoggingLocal",
+            dependencies: ["KVLoggingKit", "KVLoggingSecurity"]
+        ),
         .testTarget(
             name: "KVLoggingKitTests",
             dependencies: ["KVLoggingKit"]
@@ -22,6 +27,10 @@ let package = Package(
         .testTarget(
             name: "KVLoggingSecurityTests",
             dependencies: ["KVLoggingSecurity"]
+        ),
+        .testTarget(
+            name: "KVLoggingLocalTests",
+            dependencies: ["KVLoggingKit", "KVLoggingSecurity", "KVLoggingLocal"]
         )
     ],
     swiftLanguageModes: [.v6]
