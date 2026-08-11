@@ -45,9 +45,12 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - path: UIKitExample
+      - path: SharedResources/LaunchScreen.storyboard
+        buildPhase: resources
     info:
       path: UIKitExample/Info.plist
       properties:
+        UILaunchStoryboardName: LaunchScreen
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:
@@ -70,8 +73,12 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: SwiftUIExample
+      - path: SharedResources/LaunchScreen.storyboard
+        buildPhase: resources
     info:
       path: SwiftUIExample/Info.plist
+      properties:
+        UILaunchStoryboardName: LaunchScreen
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.khanhvu.KVLoggingKit.SwiftUIExample

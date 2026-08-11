@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0536ACE5908582DE8115EED6 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 18BDB875BF0D197D31CA0B1B /* LaunchScreen.storyboard */; };
 		053819C2EB3206CA9EDD1D3B /* SampleError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85CB03E0F7DE44AA165FC940 /* SampleError.swift */; };
 		05D773173A6CAF671D2F4FF8 /* ExampleSupport.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1A3E393A84CB63962C6D651E /* LoggingExampleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFF5862686DFB5271C3500C4 /* LoggingExampleView.swift */; };
@@ -25,6 +26,7 @@
 		A11C0163FDF36F2DA23CA0B0 /* KVLoggingSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 404EC62590215A3CB82D3FC8 /* KVLoggingSwiftUI */; };
 		A64F7FA4441EA114C72FB01E /* KVLoggingRemote in Frameworks */ = {isa = PBXBuildFile; productRef = DF02B8B310A96BC606E29DFC /* KVLoggingRemote */; };
 		B9A232923DFC235B44AF81F1 /* ExampleLoggingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50977CFC57386627D0F15A9 /* ExampleLoggingService.swift */; };
+		C9D5C7720C22EE2ED8C5E127 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 18BDB875BF0D197D31CA0B1B /* LaunchScreen.storyboard */; };
 		D61C2E1CF2707EEB50F65FA7 /* KVLoggingSecurity in Frameworks */ = {isa = PBXBuildFile; productRef = 106690E07B7DE4AD50E4CE91 /* KVLoggingSecurity */; };
 		F05EB737457B64645E2D6257 /* LoggingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2D1669E9B5829D10793573D /* LoggingViewController.swift */; };
 		F32EBD55824D43640746CA15 /* ExampleSupport.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */; };
@@ -91,6 +93,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		18BDB875BF0D197D31CA0B1B /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		18D030D405BB5B779D178835 /* ExampleLoggingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleLoggingServiceTests.swift; sourceTree = "<group>"; };
 		25BC3A5B8BDE1C495F5EFEFA /* ExampleSupport.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = ExampleSupport.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		2D1A75707F4AACF70BAB26F4 /* KVLoggingKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = KVLoggingKit; path = ../..; sourceTree = SOURCE_ROOT; };
@@ -196,6 +199,7 @@
 				444FB00C4E5C71CC0F54F4CC /* ExampleSupportTests */,
 				B77BD8A828CA451B9ABBDE79 /* Packages */,
 				CEF7916476D2A5CC183C7F37 /* Shared */,
+				B9AFA7C02B919E743C43CE6F /* SharedResources */,
 				6AFA5C2A5DC1A962C3A83B04 /* SwiftUIExample */,
 				1B1DCA6772565149E22B4336 /* UIKitExample */,
 				7A530BC6FD18F617EF8FC2B4 /* Products */,
@@ -208,6 +212,14 @@
 				2D1A75707F4AACF70BAB26F4 /* KVLoggingKit */,
 			);
 			name = Packages;
+			sourceTree = "<group>";
+		};
+		B9AFA7C02B919E743C43CE6F /* SharedResources */ = {
+			isa = PBXGroup;
+			children = (
+				18BDB875BF0D197D31CA0B1B /* LaunchScreen.storyboard */,
+			);
+			path = SharedResources;
 			sourceTree = "<group>";
 		};
 		CEF7916476D2A5CC183C7F37 /* Shared */ = {
@@ -228,6 +240,7 @@
 			buildConfigurationList = BCC0BB0FA03935ACB1CA1EE6 /* Build configuration list for PBXNativeTarget "SwiftUIExample" */;
 			buildPhases = (
 				6EB9D0634DACBA63446B3B47 /* Sources */,
+				827E8D865AC4B0F9DDA762C4 /* Resources */,
 				622962368D0CE4D79285A6F0 /* Frameworks */,
 				42B04AF20204042B3D8DD0B3 /* Embed Frameworks */,
 			);
@@ -271,6 +284,7 @@
 			buildConfigurationList = 18F292289BCBEBBA3AE2B52F /* Build configuration list for PBXNativeTarget "UIKitExample" */;
 			buildPhases = (
 				D58C09BB8F6F51AB3EFC9DB8 /* Sources */,
+				62604A97EB3CB564CB348F1D /* Resources */,
 				A9CA9AC4CF10C93567F39A1B /* Frameworks */,
 				CB7E7CFBE4CD246D89AC05CD /* Embed Frameworks */,
 			);
@@ -342,6 +356,25 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		62604A97EB3CB564CB348F1D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0536ACE5908582DE8115EED6 /* LaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		827E8D865AC4B0F9DDA762C4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C9D5C7720C22EE2ED8C5E127 /* LaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2942AFDA1C22332B64F93C30 /* Sources */ = {
