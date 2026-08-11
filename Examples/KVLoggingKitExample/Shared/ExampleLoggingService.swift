@@ -209,7 +209,6 @@ public struct ExampleLoggingService: Sendable {
                 ]
             ),
             destinations: [
-                SystemLogDestination(),
                 localFiles,
                 remote
             ]

@@ -15,7 +15,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             application: application,
             logger: loggingService.logger
         )
-        loggingService.logger.info("UIKit example launched", category: "lifecycle")
         return true
     }
 
