@@ -1,0 +1,112 @@
+name: KVLoggingKitExample
+
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "13.0"
+
+packages:
+  KVLoggingKit:
+    path: ../..
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SUPPORTS_MACCATALYST: NO
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 1.0
+
+targets:
+  ExampleSupport:
+    type: framework
+    platform: iOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.khanhvu.KVLoggingKit.ExampleSupport
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - package: KVLoggingKit
+        product: KVLoggingKit
+      - package: KVLoggingKit
+        product: KVLoggingSecurity
+      - package: KVLoggingKit
+        product: KVLoggingLocal
+      - package: KVLoggingKit
+        product: KVLoggingRemote
+
+  UIKitExample:
+    type: application
+    platform: iOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: UIKitExample
+    info:
+      path: UIKitExample/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.khanhvu.KVLoggingKit.UIKitExample
+        PRODUCT_NAME: UIKitExample
+    dependencies:
+      - target: ExampleSupport
+      - package: KVLoggingKit
+        product: KVLoggingUIKit
+
+  SwiftUIExample:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: SwiftUIExample
+    info:
+      path: SwiftUIExample/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.khanhvu.KVLoggingKit.SwiftUIExample
+        PRODUCT_NAME: SwiftUIExample
+    dependencies:
+      - target: ExampleSupport
+      - package: KVLoggingKit
+        product: KVLoggingSwiftUI
+
+  ExampleSupportTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: ExampleSupportTests
+    dependencies:
+      - target: ExampleSupport
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.khanhvu.KVLoggingKit.ExampleSupportTests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  UIKitExample:
+    build:
+      targets:
+        UIKitExample: all
+    run:
+      config: Debug
+
+  SwiftUIExample:
+    build:
+      targets:
+        SwiftUIExample: all
+    run:
+      config: Debug
+
+  ExampleSupportTests:
+    build:
+      targets:
+        ExampleSupport: all
+        ExampleSupportTests: [test]
+    test:
+      config: Debug
+      targets:
+        - ExampleSupportTests
