@@ -16,7 +16,8 @@ let package = Package(
         .library(name: "KVLoggingTesting", targets: ["KVLoggingTesting"]),
         .library(name: "KVLoggingUIKit", targets: ["KVLoggingUIKit"]),
         .library(name: "KVLoggingSwiftUI", targets: ["KVLoggingSwiftUI"]),
-        .library(name: "KVLoggingNetwork", targets: ["KVLoggingNetwork"])
+        .library(name: "KVLoggingNetwork", targets: ["KVLoggingNetwork"]),
+        .library(name: "KVLoggingConsole", targets: ["KVLoggingConsole"])
     ],
     targets: [
         .target(name: "KVLoggingKit"),
@@ -45,6 +46,10 @@ let package = Package(
             name: "KVLoggingNetwork",
             dependencies: ["KVLoggingKit"]
         ),
+        .target(
+            name: "KVLoggingConsole",
+            dependencies: ["KVLoggingKit", "KVLoggingNetwork"]
+        ),
         .testTarget(
             name: "KVLoggingKitTests",
             dependencies: ["KVLoggingKit", "KVLoggingTesting"]
@@ -68,6 +73,10 @@ let package = Package(
         .testTarget(
             name: "KVLoggingNetworkTests",
             dependencies: ["KVLoggingKit", "KVLoggingNetwork", "KVLoggingTesting"]
+        ),
+        .testTarget(
+            name: "KVLoggingConsoleTests",
+            dependencies: ["KVLoggingKit", "KVLoggingLocal", "KVLoggingNetwork", "KVLoggingConsole"]
         )
     ],
     swiftLanguageModes: [.v6]
