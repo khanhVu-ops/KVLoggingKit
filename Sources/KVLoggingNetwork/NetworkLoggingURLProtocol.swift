@@ -76,8 +76,10 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
     /// Sessions built from their own `URLSessionConfiguration` are *not*
     /// covered by `URLProtocol.registerClass` — pass
     /// `swizzlingSessionConfigurations: true` to also capture those. That
-    /// exchanges the implementation of `URLSessionConfiguration.protocolClasses`
-    /// process-wide, so keep it inside `#if DEBUG`.
+    /// replaces the implementation of `URLSessionConfiguration.protocolClasses`
+    /// process-wide and for the life of the process — ``uninstallGlobally()``
+    /// unregisters the protocol but cannot undo the replacement — so keep it
+    /// inside `#if DEBUG`.
     public static func installGlobally(swizzlingSessionConfigurations: Bool = false) {
         URLProtocol.registerClass(NetworkLoggingURLProtocol.self)
         if swizzlingSessionConfigurations {
@@ -89,40 +91,110 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         URLProtocol.unregisterClass(NetworkLoggingURLProtocol.self)
     }
 
-    private typealias ProtocolClassesIMP = @convention(c) (AnyObject, Selector) -> [AnyClass]?
+    /// Matches the real getter's contract: an ObjC method handing back `NSArray *`
+    /// at +0, autoreleased.
+    ///
+    /// Declaring the return as a bridged `[AnyClass]?` instead is what made the
+    /// first version of this crash — see ``swizzleProtocolClassesOnce``.
+    typealias ProtocolClassesIMP =
+        @convention(c) (AnyObject, Selector) -> Unmanaged<NSArray>?
 
-    nonisolated(unsafe) private static var originalProtocolClassesIMP: ProtocolClassesIMP?
+    // Internal, not private, so the regression test can drive the replacement
+    // with a stub chain instead of installing the real swizzle — which is
+    // process-global and cannot be undone.
+    nonisolated(unsafe) static var originalProtocolClassesIMP: ProtocolClassesIMP?
 
+    /// Runs as `protocolClasses` once installed, with `received` bound to the
+    /// `URLSessionConfiguration` being queried.
+    ///
+    /// A free C function rather than an `@objc` method on this class: see
+    /// ``swizzleProtocolClassesOnce`` for why that distinction is the whole bug.
+    /// It captures nothing — `@convention(c)` forbids it — and reaches the saved
+    /// implementation through the static above.
+    static let protocolClassesReplacement: ProtocolClassesIMP = { received, selector in
+        let inherited = originalProtocolClassesIMP?(received, selector)?
+            .takeUnretainedValue() ?? NSArray()
+        let existing = inherited as? [AnyClass] ?? []
+
+        guard !existing.contains(where: { $0 === NetworkLoggingURLProtocol.self }) else {
+            return Unmanaged.passRetained(inherited).autorelease()
+        }
+
+        let combined = NSArray(
+            array: [NetworkLoggingURLProtocol.self] + existing
+        )
+        // +0 autoreleased, as an ObjC getter returns. Handing back a retained
+        // object here leaks; handing back an unretained temporary over-releases.
+        return Unmanaged.passRetained(combined).autorelease()
+    }
+
+    /// Adds this protocol to every `URLSessionConfiguration`'s `protocolClasses`.
+    ///
+    /// The first version of this exchanged the getter with an `@objc` method on
+    /// this class that returned a bridged `[AnyClass]?`. That crashed every app
+    /// that enabled it on iOS 26:
+    ///
+    /// ```
+    /// +[NSURLSessionConfiguration canInitWithTask:]: unrecognized selector
+    ///   sent to class
+    ///   -[__NSURLSessionLocal _protocolClassForTask:skipAppSSO:]  (CFNetwork)
+    /// ```
+    ///
+    /// The list it produced was corrupt. The protocol class did not survive the
+    /// return — it read back as `NSURLSessionConfiguration`, which is not a
+    /// `URLProtocol` subclass and answers neither `+canInitWithTask:` nor
+    /// `+canInitWithRequest:` — and one more bogus entry was prepended on every
+    /// read, so the list grew without bound. CFNetwork asks every entry whether it
+    /// can handle the task, so the first request through any session built from
+    /// its own configuration terminated the process. Interception never worked
+    /// either: the protocol appeared in the list zero times.
+    ///
+    /// Two things fix it, both required:
+    ///
+    /// - The replacement is a free C function returning `NSArray` at +0. A Swift
+    ///   `@objc` method is the wrong tool: its thunk is entitled to assume `self`
+    ///   is an instance of the class that declares it, and here `self` is a
+    ///   configuration. The bridged `[AnyClass]?` return is what corrupted the
+    ///   list — an exchange with a C function of the right signature is clean.
+    /// - `class_replaceMethod`, not `method_exchangeImplementations`.
+    ///   `class_getInstanceMethod` walks up the superclass chain, so exchanging
+    ///   what it returns edits whichever class actually declares the getter —
+    ///   process-wide, above the one we targeted. `class_replaceMethod` adds the
+    ///   method to the class we name when the implementation is inherited, so a
+    ///   superclass is never touched. (On iOS 26 `URLSessionConfiguration.default`
+    ///   is a plain `NSURLSessionConfiguration`, not the private subclass this
+    ///   code once assumed, so the two happened to coincide — but that is an
+    ///   implementation detail to not depend on.)
     private static let swizzleProtocolClassesOnce: Void = {
-        // `URLSessionConfiguration.default` is a private concrete subclass, so
-        // the getter has to be exchanged on that class, not on the public one.
         let getter = #selector(getter: URLSessionConfiguration.protocolClasses)
         guard
             let concreteClass = object_getClass(URLSessionConfiguration.default),
-            let original = class_getInstanceMethod(concreteClass, getter),
-            let replacement = class_getInstanceMethod(
-                NetworkLoggingURLProtocol.self,
-                #selector(NetworkLoggingURLProtocol.kvNetworkLogging_protocolClasses)
-            )
+            let method = class_getInstanceMethod(concreteClass, getter)
         else { return }
 
+        // Captured before installing, and it has to be: the replacement chains
+        // through this to get Foundation's real protocol classes, and a window
+        // where it is installed but the chain is unset would answer with this
+        // protocol alone — dropping `_NSURLHTTPProtocol` and the rest, i.e.
+        // breaking all networking rather than logging it.
+        //
+        // `class_getInstanceMethod` already resolved inheritance, so this is the
+        // effective implementation whether the getter is declared on this class
+        // or above it. Either way `class_replaceMethod` leaves it reachable:
+        // an inherited one stays on its own class untouched, and a displaced one
+        // is still a live function.
         originalProtocolClassesIMP = unsafeBitCast(
-            method_getImplementation(original),
+            method_getImplementation(method),
             to: ProtocolClassesIMP.self
         )
-        method_exchangeImplementations(original, replacement)
-    }()
 
-    /// After the exchange this body runs as `protocolClasses`, with `self`
-    /// bound to the `URLSessionConfiguration` being queried.
-    @objc private func kvNetworkLogging_protocolClasses() -> [AnyClass]? {
-        let getter = #selector(getter: URLSessionConfiguration.protocolClasses)
-        var classes = NetworkLoggingURLProtocol.originalProtocolClassesIMP?(self, getter) ?? []
-        if !classes.contains(where: { $0 === NetworkLoggingURLProtocol.self }) {
-            classes.insert(NetworkLoggingURLProtocol.self, at: 0)
-        }
-        return classes
-    }
+        class_replaceMethod(
+            concreteClass,
+            getter,
+            unsafeBitCast(protocolClassesReplacement, to: IMP.self),
+            method_getTypeEncoding(method)
+        )
+    }()
 
     // MARK: - URLProtocol
 

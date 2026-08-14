@@ -345,9 +345,14 @@ NetworkLoggingURLProtocol.installGlobally(swizzlingSessionConfigurations: true)
 #endif
 ```
 
-`swizzlingSessionConfigurations` exchanges the implementation of
-`URLSessionConfiguration.protocolClasses` process-wide. Keep it inside
-`#if DEBUG`.
+`swizzlingSessionConfigurations` replaces the implementation of
+`URLSessionConfiguration.protocolClasses` process-wide, for the life of the
+process — there is no way to undo it. Keep it inside `#if DEBUG`.
+
+This is also what `LogConsole` turns on for you: its network capture scope
+defaults to `.allSessions`. Pass `scope: .sharedSessionOnly` to cover
+`URLSession.shared` without the swizzle, or `.manual` to place `install(in:)`
+calls yourself.
 
 ### Release builds: timing and status only
 
