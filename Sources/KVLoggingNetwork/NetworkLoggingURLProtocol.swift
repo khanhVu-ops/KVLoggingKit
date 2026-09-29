@@ -22,6 +22,11 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         /// log-upload endpoint, otherwise uploading logs generates more logs.
         public var shouldCapture: @Sendable (URLRequest) -> Bool
         /// Upper bound on bytes buffered per response before capture stops.
+        ///
+        /// Applies to responses only. Request bodies are always forwarded in
+        /// full — a limit there would change what the server receives — and
+        /// the copy kept for the log is capped by
+        /// `NetworkLogRedactor.maximumBodyByteCount`.
         public var maximumCapturedResponseBytes: Int
         /// Builds the configuration used to replay each intercepted request.
         /// Override it to match the originating session's cookie or cache
@@ -229,17 +234,38 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         }
         URLProtocol.setProperty(true, forKey: Self.handledKey, in: mutable)
 
-        // Reading `httpBodyStream` consumes it, so put the bytes back as a plain
-        // body before the request goes out.
-        var capturedBody = request.httpBody
-        if capturedBody == nil, let stream = request.httpBodyStream {
-            capturedBody = Self.drain(stream, limit: Self.settings.maximumCapturedResponseBytes)
-            mutable.httpBody = capturedBody
-            mutable.httpBodyStream = nil
+        // The loading system hands a protocol its body as `httpBodyStream` even
+        // when the app set `httpBody`, and reading the stream consumes it. So
+        // read it to the end and forward every byte as a plain body. The whole
+        // body has to be buffered anyway: the replay is a second request that
+        // must send it again. What the log keeps is capped separately, by
+        // `NetworkLogRedactor.maximumBodyByteCount`.
+        //
+        // 1.1.0 read at most `maximumCapturedResponseBytes` here, and then
+        // assigned `httpBodyStream = nil` after `httpBody`. The two are one slot
+        // in `NSURLRequest` — assigning either clears the other — so that second
+        // assignment erased the body again and every request that had one went
+        // out empty whenever capture was on.
+        var body = request.httpBody
+        if body == nil, let stream = request.httpBodyStream {
+            switch Self.readToEnd(stream) {
+            case let .success(data):
+                body = data
+            case let .failure(error):
+                // Sending a partial body would corrupt the upload silently.
+                client?.urlProtocol(self, didFailWithError: error)
+                return
+            }
+        }
+        if let body {
+            // Also clears `httpBodyStream`; do not assign that afterwards.
+            mutable.httpBody = body
         }
 
         let outgoing = mutable as URLRequest
-        let snapshot = URLRequestSnapshot(outgoing, bodyOverride: capturedBody)
+        // Shares storage with the forwarded body rather than copying it; the
+        // recorder reduces it to a capped, redacted copy before storing.
+        let snapshot = URLRequestSnapshot(outgoing, bodyOverride: body)
         requestSnapshot = snapshot
 
         let key = NetworkTaskKey(owner: self, taskIdentifier: 0)
@@ -274,22 +300,28 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         replayTask = nil
     }
 
-    private static func drain(_ stream: InputStream, limit: Int) -> Data? {
-        guard limit > 0 else { return nil }
-
+    /// Reads `stream` until it reports the end, however long it is.
+    ///
+    /// Stopping at `hasBytesAvailable` is not enough: a stream may say `false`
+    /// before it has ended, and only `read` returning 0 means the end.
+    private static func readToEnd(_ stream: InputStream) -> Result<Data, any Error> {
         stream.open()
         defer { stream.close() }
 
         var data = Data()
-        let bufferSize = 8_192
+        let bufferSize = 65_536
         var buffer = [UInt8](repeating: 0, count: bufferSize)
 
-        while stream.hasBytesAvailable, data.count < limit {
+        while true {
             let read = stream.read(&buffer, maxLength: bufferSize)
-            guard read > 0 else { break }
-            data.append(buffer, count: read)
+            if read > 0 {
+                data.append(buffer, count: read)
+            } else if read == 0 {
+                return .success(data)
+            } else {
+                return .failure(stream.streamError ?? URLError(.unknown))
+            }
         }
-        return data.isEmpty ? nil : data
     }
 }
 
