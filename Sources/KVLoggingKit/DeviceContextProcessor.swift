@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DeviceContextProcessor: LogProcessor {
+public struct DeviceContextProcessor: SynchronousLogProcessor {
     /// Keys this processor contributes. `PrivacyProcessor.strict` unions them
     /// into its allowlist so device context is never dropped by accident.
     public static let metadataKeys: Set<String> = [
@@ -30,7 +30,7 @@ public struct DeviceContextProcessor: LogProcessor {
         ]
     }
 
-    public func process(_ event: LogEvent) async -> LogEvent? {
+    public func processSynchronously(_ event: LogEvent) -> LogEvent? {
         event.replacing(
             metadata: metadata.merging(event.metadata) { _, eventValue in eventValue }
         )

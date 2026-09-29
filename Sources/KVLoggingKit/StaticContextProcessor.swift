@@ -1,11 +1,11 @@
-public struct StaticContextProcessor: LogProcessor {
+public struct StaticContextProcessor: SynchronousLogProcessor {
     private let metadata: LogMetadata
 
     public init(metadata: LogMetadata) {
         self.metadata = metadata
     }
 
-    public func process(_ event: LogEvent) async -> LogEvent? {
+    public func processSynchronously(_ event: LogEvent) -> LogEvent? {
         event.replacing(
             metadata: metadata.merging(event.metadata) { _, eventValue in eventValue }
         )

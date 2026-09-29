@@ -2,6 +2,10 @@ import Foundation
 
 private enum LogCommand: Sendable {
     case event(LogEvent)
+    /// Already through the processor chain on the calling thread, because an
+    /// immediate destination needed it there first. Running it again would
+    /// redact twice and, for a stateful processor, count the event twice.
+    case processedEvent(LogEvent)
     /// Emitted by the debounce timer to close an open batch.
     case tick
     case flush(CheckedContinuation<Void, Never>)
@@ -9,7 +13,10 @@ private enum LogCommand: Sendable {
 
 private actor LogWorker {
     private let processors: [any LogProcessor]
+    /// Receive batches. Immediate destinations are not among them.
     private let destinations: [any LogDestination]
+    /// Receive `flush()`: every destination, immediate ones included.
+    private let flushedDestinations: [any LogDestination]
     private let maxBatchSize: Int
     private let batchIntervalNanoseconds: UInt64
     private let internalErrorHandler: (@Sendable (any Error) -> Void)?
@@ -20,12 +27,14 @@ private actor LogWorker {
     init(
         processors: [any LogProcessor],
         destinations: [any LogDestination],
+        flushedDestinations: [any LogDestination],
         maxBatchSize: Int,
         batchInterval: TimeInterval,
         internalErrorHandler: (@Sendable (any Error) -> Void)?
     ) {
         self.processors = processors
         self.destinations = destinations
+        self.flushedDestinations = flushedDestinations
         self.maxBatchSize = maxBatchSize
         self.batchIntervalNanoseconds = UInt64(max(0, batchInterval) * 1_000_000_000)
         self.internalErrorHandler = internalErrorHandler
@@ -42,6 +51,9 @@ private actor LogWorker {
         for await command in stream {
             switch command {
             case let .event(event):
+                guard let processed = await process(event) else { continue }
+                await accept(processed, continuation: continuation)
+            case let .processedEvent(event):
                 await accept(event, continuation: continuation)
             case .tick:
                 await writeBatch()
@@ -61,9 +73,7 @@ private actor LogWorker {
         _ event: LogEvent,
         continuation: AsyncStream<LogCommand>.Continuation
     ) async {
-        guard let processed = await process(event) else { return }
-
-        batch.append(processed)
+        batch.append(event)
 
         if batch.count >= maxBatchSize {
             await writeBatch()
@@ -112,7 +122,7 @@ private actor LogWorker {
     }
 
     private func flushDestinations() async {
-        for destination in destinations {
+        for destination in flushedDestinations {
             do {
                 try await destination.flush()
             } catch {
@@ -123,6 +133,12 @@ private actor LogWorker {
 }
 
 /// Entry point for logging. Calls are synchronous and never block on I/O.
+///
+/// Events reach most destinations in batches, on a background worker. An
+/// ``ImmediateLogDestination`` — `SystemLogDestination` by default — is written
+/// on the calling thread before `log` returns instead, provided every processor
+/// is a ``SynchronousLogProcessor``; the processor chain then runs on the
+/// calling thread too, once, and the batched destinations get its result.
 public final class LogClient: @unchecked Sendable {
     public static let disabled = LogClient(
         configuration: .init(minimumLevel: .critical),
@@ -133,6 +149,11 @@ public final class LogClient: @unchecked Sendable {
     private let isEnabled: Bool
     private let commandContinuation: AsyncStream<LogCommand>.Continuation
     private let workerTask: Task<Void, Never>
+
+    /// Empty unless every processor is synchronous; see the type's docs.
+    private let immediateDestinations: [any ImmediateLogDestination]
+    private let synchronousProcessors: [any SynchronousLogProcessor]
+    private let hasBatchedDestinations: Bool
 
     private let levelLock = NSLock()
     private var _minimumLevel: LogLevel
@@ -157,6 +178,28 @@ public final class LogClient: @unchecked Sendable {
         self._minimumLevel = configuration.minimumLevel
         self.isEnabled = isEnabled
 
+        let synchronousProcessors = configuration.processors.compactMap {
+            $0 as? any SynchronousLogProcessor
+        }
+        // One async processor anywhere in the chain means the chain can only
+        // run on the worker, so nothing may be written before it has.
+        let canWriteImmediately = synchronousProcessors.count == configuration.processors.count
+
+        var immediateDestinations: [any ImmediateLogDestination] = []
+        var batchedDestinations: [any LogDestination] = []
+        for destination in destinations {
+            if canWriteImmediately,
+               let immediate = destination as? any ImmediateLogDestination,
+               immediate.writesImmediately {
+                immediateDestinations.append(immediate)
+            } else {
+                batchedDestinations.append(destination)
+            }
+        }
+        self.immediateDestinations = immediateDestinations
+        self.synchronousProcessors = synchronousProcessors
+        self.hasBatchedDestinations = !batchedDestinations.isEmpty
+
         // Bounded so a logging storm cannot grow without limit. Overflow drops
         // the oldest pending events, which are the least useful ones.
         let stream = AsyncStream<LogCommand>.makeStream(
@@ -166,7 +209,8 @@ public final class LogClient: @unchecked Sendable {
 
         let worker = LogWorker(
             processors: configuration.processors,
-            destinations: destinations,
+            destinations: batchedDestinations,
+            flushedDestinations: destinations,
             maxBatchSize: configuration.maxBatchSize,
             batchInterval: configuration.batchInterval,
             internalErrorHandler: configuration.internalErrorHandler
@@ -220,20 +264,37 @@ public final class LogClient: @unchecked Sendable {
     ) {
         guard isEnabled, level >= minimumLevel else { return }
 
-        let result = commandContinuation.yield(
-            .event(
-                LogEvent(
-                    level: level,
-                    message: message(),
-                    category: category,
-                    metadata: metadata,
-                    error: error,
-                    source: .init(file: file, function: function, line: line)
-                )
-            )
+        let event = LogEvent(
+            level: level,
+            message: message(),
+            category: category,
+            metadata: metadata,
+            error: error,
+            source: .init(file: file, function: function, line: line)
         )
 
-        handle(result)
+        guard !immediateDestinations.isEmpty else {
+            handle(commandContinuation.yield(.event(event)))
+            return
+        }
+
+        guard let processed = processSynchronously(event) else { return }
+
+        for destination in immediateDestinations {
+            destination.writeImmediately(processed)
+        }
+        if hasBatchedDestinations {
+            handle(commandContinuation.yield(.processedEvent(processed)))
+        }
+    }
+
+    private func processSynchronously(_ event: LogEvent) -> LogEvent? {
+        var current = event
+        for processor in synchronousProcessors {
+            guard let next = processor.processSynchronously(current) else { return nil }
+            current = next
+        }
+        return current
     }
 
     /// Overflow evicts the oldest queued command. If that command happens to be

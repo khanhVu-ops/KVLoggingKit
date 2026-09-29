@@ -11,10 +11,15 @@ import XCTest
 /// that ordering, but the tests that predate the swizzle should be observed
 /// without it.
 private final class InstallStubProtocol: URLProtocol, @unchecked Sendable {
+    /// What the far side of the replay received, i.e. what the server would.
+    nonisolated(unsafe) static var receivedBodies: [Data] = []
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        Self.receivedBodies.append(request.httpBody ?? Self.readAll(request.httpBodyStream))
+
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 204,
@@ -26,6 +31,21 @@ private final class InstallStubProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+
+    private static func readAll(_ stream: InputStream?) -> Data {
+        guard let stream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 65_536)
+        while true {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
 }
 
 final class ZGlobalSwizzleInstallTests: XCTestCase {
@@ -91,5 +111,42 @@ final class ZGlobalSwizzleInstallTests: XCTestCase {
         )
 
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+    }
+
+    /// `LogConsole.install()`'s default scope reaches every session in the
+    /// process, SDKs' included, so a body the interception mangles is mangled
+    /// app-wide. Before 1.2.0 every request body arrived empty here.
+    func testUploadsThroughACustomConfigurationArriveIntact() async throws {
+        InstallStubProtocol.receivedBodies = []
+        let session = URLSession(configuration: .default)
+        let payload = Data((0..<2_500_000).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ $0 >> 10) })
+
+        var streamed = URLRequest(url: URL(string: "https://api.example.com/v1/photos")!)
+        streamed.httpMethod = "POST"
+        streamed.httpBodyStream = InputStream(data: payload)
+        _ = try await session.data(for: streamed)
+
+        var plain = URLRequest(url: URL(string: "https://api.example.com/v1/photos")!)
+        plain.httpMethod = "POST"
+        plain.httpBody = payload
+        _ = try await session.data(for: plain)
+
+        var upload = URLRequest(url: URL(string: "https://api.example.com/v1/photos")!)
+        upload.httpMethod = "POST"
+        _ = try await session.upload(for: upload, from: payload)
+
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kvlogging-upload-\(UUID().uuidString).bin")
+        try payload.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        _ = try await session.upload(for: upload, fromFile: file)
+
+        XCTAssertEqual(
+            InstallStubProtocol.receivedBodies.map(\.count),
+            Array(repeating: payload.count, count: 4)
+        )
+        for (index, body) in InstallStubProtocol.receivedBodies.enumerated() {
+            XCTAssertTrue(body == payload, "request \(index) arrived altered")
+        }
     }
 }

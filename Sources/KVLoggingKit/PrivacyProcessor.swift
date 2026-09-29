@@ -1,7 +1,7 @@
 import Foundation
 
 /// Scrubs message text and, optionally, drops metadata keys outside an allowlist.
-public struct PrivacyProcessor: LogProcessor {
+public struct PrivacyProcessor: SynchronousLogProcessor {
     private let allowedMetadataKeys: Set<String>?
     private let redaction: LogRedaction
 
@@ -38,7 +38,7 @@ public struct PrivacyProcessor: LogProcessor {
         )
     }
 
-    public func process(_ event: LogEvent) async -> LogEvent? {
+    public func processSynchronously(_ event: LogEvent) -> LogEvent? {
         let metadata: LogMetadata
         if let allowedMetadataKeys {
             metadata = event.metadata.filter { allowedMetadataKeys.contains($0.key) }
