@@ -9,6 +9,15 @@ public enum NetworkCaptureScope: Sendable {
     /// Reaching the latter needs `URLSessionConfiguration.protocolClasses` to be
     /// swizzled, which only happens after ``DebugAccessPolicy`` has allowed the
     /// console — never in a build that cannot show it.
+    ///
+    /// The swizzle is process-wide and permanent: every session any code in the
+    /// process creates afterwards — third-party SDKs included — is routed
+    /// through `NetworkLoggingURLProtocol`, and nothing turns it off again short
+    /// of relaunching. Each request is then replayed through a second session,
+    /// with its body buffered in memory, sharing cookie and cache storage unless
+    /// `NetworkLoggingURLProtocol.Settings.replayConfiguration` says otherwise.
+    /// Background sessions are unaffected. Use ``sharedSessionOnly`` or
+    /// ``manual`` to keep that reach narrower.
     case allSessions
     /// `URLSession.shared` only. No swizzling.
     case sharedSessionOnly
