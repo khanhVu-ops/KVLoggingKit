@@ -48,11 +48,15 @@ final class LogListModel: ObservableObject {
     func startObserving() {
         guard observation == nil else { return }
 
-        observation = Task { [store] in
+        // Weak, so the model can be released while this waits for a change:
+        // a strong capture kept it alive, and with it the task, so `deinit`
+        // never ran to cancel either. `self` is re-resolved on every pass and
+        // never held across the wait for the next signal.
+        observation = Task { [weak self, store] in
             for await _ in store.changes() {
                 if Task.isCancelled { return }
                 let snapshot = await store.all()
-                if Task.isCancelled { return }
+                guard !Task.isCancelled, let self else { return }
                 self.events = snapshot
 
                 // Coalesces bursts and keeps the console from monopolising the
