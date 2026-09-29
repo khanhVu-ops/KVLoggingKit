@@ -173,6 +173,24 @@ let logger = (try? LoggingBootstrap.makeLogger().client) ?? .disabled
 
 Calls are synchronous and do not block the caller on file or network I/O.
 
+Most destinations receive events in batches on a background worker, up to
+`LogConfiguration.batchInterval` (200 ms) later. `SystemLogDestination` is the
+exception: it writes to the unified log on the calling thread before the call
+returns, so the Xcode console shows entries in real time and on the right
+thread, and the last lines before a crash are not lost in an unwritten batch.
+The processor chain runs on the calling thread for it, once, and batched
+destinations receive the same processed event.
+
+- That needs every processor to be a `SynchronousLogProcessor`. The built-in
+  ones are. A custom processor that only implements the async `process(_:)`
+  still works, but then the unified log is batched too — an event is never
+  written before its redaction has run.
+- `SystemLogDestination(mode: .batched)` restores batching.
+- Xcode still shows `SystemLogDestination.swift` as each entry's source
+  location: `os_log` records the address it was called from, and a wrapper
+  cannot pass its caller's through. The event's own `source` carries the real
+  file and line.
+
 ```swift
 logger.debug("Preparing profile screen")
 logger.info("Profile loaded")
@@ -336,6 +354,15 @@ NetworkLoggingURLProtocol.install(in: apiSessionConfiguration)
 #endif
 ```
 
+Request bodies are forwarded to the server in full. The loading system hands
+`URLProtocol` every body as a stream, which reading consumes, so the protocol
+reads it to the end and sends it on — an upload is held in memory once while it
+is in flight, even if the app streamed it from a file. Only a copy capped by
+`NetworkLogRedactor.maximumBodyByteCount` (32 KB) is kept for the log, which
+still reports the real size. `maximumCapturedResponseBytes` limits what is
+buffered of each *response*. Before 1.2.0 every request body was forwarded
+empty whenever capture was on.
+
 `install(in:)` covers sessions built from that configuration. To also cover
 `URLSession.shared` and sessions the app builds elsewhere:
 
@@ -352,7 +379,8 @@ process — there is no way to undo it. Keep it inside `#if DEBUG`.
 This is also what `LogConsole` turns on for you: its network capture scope
 defaults to `.allSessions`. Pass `scope: .sharedSessionOnly` to cover
 `URLSession.shared` without the swizzle, or `.manual` to place `install(in:)`
-calls yourself.
+calls yourself. See [Scoping network capture](#scoping-network-capture) for
+what the default reaches.
 
 ### Release builds: timing and status only
 
@@ -456,6 +484,24 @@ LogConsole.startNetworkCapture(
 | `.allSessions` | `URLSession.shared` and every session built from a configuration | `URLSessionConfiguration.protocolClasses` |
 | `.sharedSessionOnly` | `URLSession.shared` | no |
 | `.manual` | Only what you register yourself | no |
+
+**What the default `.allSessions` does to the process.** `startNetworkCapture`
+replaces the `URLSessionConfiguration.protocolClasses` getter process-wide, and
+nothing can undo it until the app relaunches:
+
+- Every session created afterwards is intercepted — not only the app's, but
+  those of any SDK in the process (analytics, crash reporting, image loading,
+  payments). Background sessions are the one exception; `URLProtocol` is
+  ignored there.
+- Each intercepted request is replayed through a second `URLSession`, and its
+  request body is held in memory while it is in flight.
+- The replay uses shared cookie and cache storage unless
+  `NetworkLoggingURLProtocol.settings.replayConfiguration` supplies another.
+- It happens only when `DebugAccessPolicy` allows the console, so a production
+  build that denies it is untouched.
+
+Pick `.sharedSessionOnly` or `.manual` if that reach is more than a debug
+session needs.
 
 With `.manual`, opt individual sessions in:
 
@@ -579,10 +625,13 @@ func testRefreshLogsAnEvent() async {
 App code
    │ synchronous log call
    ▼
-LogClient → ordered AsyncStream → processor chain → destinations
-                                      ├─ unified logging
-                                      ├─ encrypted rolling files
-                                      └─ batch → retry → encrypted queue → transport
+LogClient → processor chain ─┬─ unified logging, on the calling thread
+                             └─ ordered AsyncStream → batched destinations
+                                  ├─ encrypted rolling files
+                                  └─ batch → retry → encrypted queue → transport
+
+(With an async-only processor, the chain runs on the worker instead and the
+unified log is batched with the rest.)
 
 URLSession
    │ URLProtocol interception, or URLSessionTaskDelegate observation
