@@ -2,6 +2,28 @@
 
 All notable changes to KVLoggingKit are documented in this file.
 
+## 1.1.1 - 2026-09-30
+
+### Fixed
+
+- `NetworkLoggingURLProtocol` sent every captured request that had a body with
+  **no body at all**. A JSON `POST` logged correctly in the console, but the
+  server received an empty body (seen as a `400` validation error from a real
+  backend). URLSession hands a protocol the body as `httpBodyStream`, and the
+  protocol read it back into `httpBody`. It then assigned `httpBodyStream = nil`
+  second, and on `NSMutableURLRequest` assigning the stream, even `nil`, clears
+  the body. The stream is now cleared first and the body set after.
+- Uploads over the capture limit (1 MB by default) were sent **truncated**. The
+  outgoing body was read only up to `maximumCapturedResponseBytes`. The whole
+  body is now read and sent, and the limit bounds only the copy kept for the
+  console.
+- The body stream is read to end of stream instead of while `hasBytesAvailable`,
+  and a stream that fails part-way fails the request rather than sending a
+  shortened body.
+
+Tests now assert on the bytes the transport receives, not only on the record.
+The record looked right the whole time the server was getting nothing.
+
 ## 1.1.0 - 2026-08-14
 
 ### Fixed

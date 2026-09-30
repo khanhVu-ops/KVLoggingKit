@@ -229,17 +229,33 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         }
         URLProtocol.setProperty(true, forKey: Self.handledKey, in: mutable)
 
-        // Reading `httpBodyStream` consumes it, so put the bytes back as a plain
-        // body before the request goes out.
-        var capturedBody = request.httpBody
-        if capturedBody == nil, let stream = request.httpBodyStream {
-            capturedBody = Self.drain(stream, limit: Self.settings.maximumCapturedResponseBytes)
-            mutable.httpBody = capturedBody
+        // URLSession hands a protocol the body as a stream even when the caller set
+        // `httpBody`. Reading it consumes it, so the whole body is read and put back
+        // as a plain body before the request goes out. Two rules, both learned the
+        // hard way in 1.1.0:
+        // - read to end of stream, never on `hasBytesAvailable`, which can read
+        //   `false` before the stream has delivered anything;
+        // - the capture limit bounds only what is *recorded*. It once bounded what
+        //   was *sent*, truncating every upload past 1 MB.
+        var outgoingBody = request.httpBody
+        if outgoingBody == nil, let stream = request.httpBodyStream {
+            guard let body = Self.readToEnd(stream) else {
+                client?.urlProtocol(self, didFailWithError: URLError(.cannotLoadFromNetwork))
+                return
+            }
+            outgoingBody = body
+            // Order matters: `httpBody` and `httpBodyStream` are exclusive, and
+            // assigning the stream — even `nil` — clears the body. 1.1.0 set the
+            // body first and the stream second, sending an empty body every time.
             mutable.httpBodyStream = nil
+            mutable.httpBody = body
         }
 
+        let limit = Self.settings.maximumCapturedResponseBytes
+        let recordedBody = outgoingBody.map { $0.count > limit ? $0.prefix(limit) : $0 }
+
         let outgoing = mutable as URLRequest
-        let snapshot = URLRequestSnapshot(outgoing, bodyOverride: capturedBody)
+        let snapshot = URLRequestSnapshot(outgoing, bodyOverride: recordedBody)
         requestSnapshot = snapshot
 
         let key = NetworkTaskKey(owner: self, taskIdentifier: 0)
@@ -274,22 +290,26 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         replayTask = nil
     }
 
-    private static func drain(_ stream: InputStream, limit: Int) -> Data? {
-        guard limit > 0 else { return nil }
-
+    /// Every byte of `stream`, or `nil` if the stream fails part-way — a request
+    /// must not go out with a silently shortened body.
+    static func readToEnd(_ stream: InputStream) -> Data? {
         stream.open()
         defer { stream.close() }
 
         var data = Data()
-        let bufferSize = 8_192
+        let bufferSize = 64 * 1_024
         var buffer = [UInt8](repeating: 0, count: bufferSize)
 
-        while stream.hasBytesAvailable, data.count < limit {
+        while true {
             let read = stream.read(&buffer, maxLength: bufferSize)
-            guard read > 0 else { break }
-            data.append(buffer, count: read)
+            if read > 0 {
+                data.append(buffer, count: read)
+            } else if read == 0 {
+                return data
+            } else {
+                return nil
+            }
         }
-        return data.isEmpty ? nil : data
     }
 }
 

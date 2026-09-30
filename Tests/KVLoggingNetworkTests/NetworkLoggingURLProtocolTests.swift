@@ -21,7 +21,11 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+    /// The body as it reached the transport — what the server would have seen.
+    nonisolated(unsafe) static var receivedBodies: [Data] = []
+
     override func startLoading() {
+        Self.receivedBodies.append(Self.readBody(of: request))
         let stub = Self.stub
         let response = HTTPURLResponse(
             url: request.url!,
@@ -35,6 +39,23 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+
+    /// Reads to end of stream. Deliberately not `hasBytesAvailable`-driven: that
+    /// is the very check this suite exists to catch misbehaving.
+    private static func readBody(of request: URLRequest) -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 16_384)
+        while true {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
 }
 
 final class NetworkLoggingURLProtocolTests: XCTestCase {
@@ -159,6 +180,98 @@ final class NetworkLoggingURLProtocolTests: XCTestCase {
         let captured = await waitForRecord(in: store)
         let record = try XCTUnwrap(captured)
         XCTAssertEqual(record.request.body.text, "streamed payload")
+    }
+
+    // MARK: - The body that goes out
+
+    // Capture must never change what is sent. These assert on the bytes the
+    // transport received, not on the record: the record looked right in 1.1.0
+    // while servers were getting an empty body.
+
+    private func sendThroughCapture(_ request: URLRequest, captureLimit: Int = 1_048_576) async throws {
+        StubURLProtocol.receivedBodies = []
+        StubURLProtocol.stub = .init(statusCode: 200, headers: [:], body: Data())
+        NetworkLoggingURLProtocol.settings = .init(
+            recorder: NetworkLogRecorder(store: NetworkLogStore()),
+            maximumCapturedResponseBytes: captureLimit,
+            replayConfiguration: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [StubURLProtocol.self]
+                return configuration
+            }
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        NetworkLoggingURLProtocol.install(in: configuration)
+        _ = try await URLSession(configuration: configuration).data(for: request)
+    }
+
+    /// 1.1.0: a JSON POST reached the server with no body at all. URLSession hands
+    /// a protocol the body as a stream; it was read back into `httpBody`, and then
+    /// `httpBodyStream = nil` — assigned second — cleared it again.
+    func testAJSONBodyReachesTheServerIntact() async throws {
+        let body = Data(#"{"deviceId":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","name":"Guest"}"#.utf8)
+        var request = URLRequest(url: URL(string: "https://api.example.com/api/access/signup")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        try await sendThroughCapture(request)
+
+        XCTAssertEqual(StubURLProtocol.receivedBodies, [body])
+    }
+
+    /// 1.1.0 read the outgoing body only up to the *capture* limit, so an upload
+    /// past 1 MB was sent truncated.
+    func testABodyLargerThanTheCaptureLimitIsSentWhole() async throws {
+        let body = Data((0..<(2_500_000)).map { UInt8($0 % 251) })
+        var request = URLRequest(url: URL(string: "https://api.example.com/v1/upload")!)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        try await sendThroughCapture(request, captureLimit: 1_048_576)
+
+        XCTAssertEqual(StubURLProtocol.receivedBodies.first?.count, body.count)
+        XCTAssertEqual(StubURLProtocol.receivedBodies.first, body)
+    }
+
+    func testAStreamedBodyReachesTheServerIntact() async throws {
+        let body = Data(String(repeating: "streamed payload ", count: 1_000).utf8)
+        var request = URLRequest(url: URL(string: "https://api.example.com/v1/upload")!)
+        request.httpMethod = "PUT"
+        request.httpBodyStream = InputStream(data: body)
+
+        try await sendThroughCapture(request)
+
+        XCTAssertEqual(StubURLProtocol.receivedBodies, [body])
+    }
+
+    /// The record keeps at most the capture limit — the limit bounds memory held
+    /// for the console, never what is sent.
+    func testTheRecordedBodyIsBoundedByTheCaptureLimit() async throws {
+        let store = NetworkLogStore()
+        StubURLProtocol.stub = .init(statusCode: 200, headers: [:], body: Data())
+        NetworkLoggingURLProtocol.settings = .init(
+            recorder: NetworkLogRecorder(store: store),
+            maximumCapturedResponseBytes: 1_000,
+            replayConfiguration: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [StubURLProtocol.self]
+                return configuration
+            }
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        NetworkLoggingURLProtocol.install(in: configuration)
+        var request = URLRequest(url: URL(string: "https://api.example.com/v1/upload")!)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(repeating: 7, count: 5_000)
+
+        _ = try await URLSession(configuration: configuration).data(for: request)
+
+        let captured = await waitForRecord(in: store)
+        let record = try XCTUnwrap(captured)
+        XCTAssertLessThanOrEqual(record.request.body.byteCount, 1_000)
     }
 
     /// The recorder finishes on a detached task, so the record can land a beat
