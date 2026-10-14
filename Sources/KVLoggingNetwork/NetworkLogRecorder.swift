@@ -16,19 +16,39 @@ public actor NetworkLogRecorder {
     private var category: String
     private var isEnabled: Bool
     private var inFlight: [NetworkTaskKey: NetworkLogRecord] = [:]
+    private var streams: [NetworkTaskKey: StreamCapture] = [:]
+    private let maximumStreamEvents: Int
+    private let streamPublishInterval: TimeInterval
 
+    private struct StreamCapture {
+        var parser = ServerSentEventParser()
+        var lastPublish = Date.distantPast
+        var isFlushScheduled = false
+    }
+
+    /// - Parameters:
+    ///   - maximumStreamEvents: Events kept per server-sent events response.
+    ///     Older ones are dropped first and counted in
+    ///     ``NetworkStreamLog/droppedEventCount``.
+    ///   - streamPublishInterval: How often a live stream pushes its new events
+    ///     to the store. Token-by-token streams would otherwise refresh the
+    ///     viewer hundreds of times a second.
     public init(
         store: NetworkLogStore = .shared,
         redactor: NetworkLogRedactor = .default,
         logger: LogClient? = nil,
         category: String = "network",
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        maximumStreamEvents: Int = 2_000,
+        streamPublishInterval: TimeInterval = 0.25
     ) {
         self.store = store
         self.redactor = redactor
         self.logger = logger
         self.category = category
         self.isEnabled = isEnabled
+        self.maximumStreamEvents = max(1, maximumStreamEvents)
+        self.streamPublishInterval = max(0, streamPublishInterval)
     }
 
     // MARK: - Configuration
@@ -45,6 +65,7 @@ public actor NetworkLogRecorder {
         self.isEnabled = isEnabled
         if !isEnabled {
             inFlight.removeAll()
+            streams.removeAll()
         }
     }
 
@@ -70,6 +91,92 @@ public actor NetworkLogRecorder {
         return record.id
     }
 
+    /// Records the response head as soon as it arrives, so a long-lived
+    /// response shows its status and headers while still in flight. A
+    /// `text/event-stream` response starts collecting events from here on.
+    public func receive(
+        _ key: NetworkTaskKey,
+        response: HTTPResponseSnapshot
+    ) async {
+        guard isEnabled, var record = inFlight[key] else { return }
+
+        record.response = NetworkLogResponse(
+            statusCode: response.statusCode,
+            headers: redactor.redacted(headers: response.headers),
+            body: NetworkLogBody(content: .empty, contentType: response.contentType)
+        )
+        if NetworkLogRecord.isEventStream(contentType: response.contentType) {
+            record.stream = NetworkStreamLog()
+            streams[key] = StreamCapture()
+        }
+        inFlight[key] = record
+        await store.update(record)
+    }
+
+    /// Feeds a chunk of a `text/event-stream` body. Ignored for any other response.
+    public func receiveStreamData(
+        _ key: NetworkTaskKey,
+        data: Data,
+        receivedAt: Date = Date()
+    ) async {
+        guard
+            isEnabled,
+            var record = inFlight[key],
+            var stream = record.stream,
+            var capture = streams[key]
+        else { return }
+
+        stream.totalByteCount += data.count
+        let offset = receivedAt.timeIntervalSince(record.startedAt)
+        for fields in capture.parser.feed(data) {
+            append(fields, offset: offset, to: &stream)
+        }
+        record.stream = stream
+        inFlight[key] = record
+
+        if receivedAt.timeIntervalSince(capture.lastPublish) >= streamPublishInterval {
+            capture.lastPublish = receivedAt
+            streams[key] = capture
+            await store.update(record)
+        } else if !capture.isFlushScheduled {
+            // Events that arrive inside the interval still have to show up if
+            // the stream then goes quiet.
+            capture.isFlushScheduled = true
+            streams[key] = capture
+            let delay = UInt64(streamPublishInterval * 1_000_000_000)
+            Task {
+                try? await Task.sleep(nanoseconds: delay)
+                await self.flushStream(key)
+            }
+        } else {
+            streams[key] = capture
+        }
+    }
+
+    private func flushStream(_ key: NetworkTaskKey) async {
+        guard var capture = streams[key], let record = inFlight[key] else { return }
+        capture.isFlushScheduled = false
+        capture.lastPublish = Date()
+        streams[key] = capture
+        await store.update(record)
+    }
+
+    private func append(
+        _ fields: ServerSentEventFields,
+        offset: TimeInterval,
+        to stream: inout NetworkStreamLog
+    ) {
+        let event = redactor.streamEvent(from: fields, id: stream.totalEventCount, offset: offset)
+        stream.totalEventCount += 1
+        stream.events.append(event)
+
+        let overflow = stream.events.count - maximumStreamEvents
+        if overflow > 0 {
+            stream.events.removeFirst(overflow)
+            stream.droppedEventCount += overflow
+        }
+    }
+
     /// Finishes a task, whether or not `begin` was called for it.
     public func complete(
         _ key: NetworkTaskKey,
@@ -90,14 +197,36 @@ public actor NetworkLogRecorder {
         record.metrics = metrics
         record.error = error.map(LogError.init)
 
+        var capture = streams.removeValue(forKey: key)
+
         if let response {
+            let body: NetworkLogBody
+            if NetworkLogRecord.isEventStream(contentType: response.contentType) {
+                var stream = record.stream ?? NetworkStreamLog()
+                if capture == nil {
+                    // Nothing was fed live (delegate mode): parse the whole body now.
+                    var parser = ServerSentEventParser()
+                    let data = responseData ?? Data()
+                    stream.totalByteCount = data.count
+                    let offset = record.duration ?? 0
+                    for fields in parser.feed(data) {
+                        append(fields, offset: offset, to: &stream)
+                    }
+                    capture = StreamCapture(parser: parser)
+                }
+                if let last = capture?.parser.finish() {
+                    append(last, offset: record.duration ?? 0, to: &stream)
+                }
+                record.stream = stream
+                body = rawBody(for: stream, contentType: response.contentType)
+            } else {
+                body = redactor.responseBody(from: responseData, contentType: response.contentType)
+            }
+
             record.response = NetworkLogResponse(
                 statusCode: response.statusCode,
                 headers: redactor.redacted(headers: response.headers),
-                body: redactor.responseBody(
-                    from: responseData,
-                    contentType: response.contentType
-                )
+                body: body
             )
         }
 
@@ -108,6 +237,42 @@ public actor NetworkLogRecorder {
     }
 
     // MARK: - Helpers
+
+    /// The stream written back out from its redacted events, so the raw view
+    /// never shows a value the event list hides.
+    private func rawBody(for stream: NetworkStreamLog, contentType: String?) -> NetworkLogBody {
+        guard redactor.capturesResponseBodies else {
+            return redactor.responseBody(from: nil, contentType: contentType)
+        }
+        guard !stream.events.isEmpty else {
+            return NetworkLogBody(content: .empty, byteCount: stream.totalByteCount, contentType: contentType)
+        }
+
+        var text = ""
+        var isTruncated = stream.droppedEventCount > 0
+        for event in stream.events {
+            var block = ""
+            if let name = event.event { block += "event: \(name)\n" }
+            if let id = event.lastEventID { block += "id: \(id)\n" }
+            block += event.data.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { "data: \($0)\n" }
+                .joined()
+            block += "\n"
+
+            if text.utf8.count + block.utf8.count > redactor.maximumBodyByteCount {
+                isTruncated = true
+                break
+            }
+            text += block
+        }
+
+        return NetworkLogBody(
+            content: .text(text),
+            byteCount: stream.totalByteCount,
+            isTruncated: isTruncated,
+            contentType: contentType
+        )
+    }
 
     private func makeRequest(from snapshot: URLRequestSnapshot) -> NetworkLogRequest {
         NetworkLogRequest(

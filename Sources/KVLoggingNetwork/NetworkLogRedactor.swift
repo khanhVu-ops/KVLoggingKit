@@ -19,6 +19,12 @@ public struct NetworkLogRedactor: Sendable {
     public var maximumBodyByteCount: Int
     public var capturesRequestBodies: Bool
     public var capturesResponseBodies: Bool
+    /// Strings in a server-sent event longer than this are replaced by a size
+    /// marker. Streams often carry base64 audio or images per event, which is
+    /// unreadable in the viewer and would dominate memory.
+    public var maximumStreamStringLength: Int
+    /// Non-JSON event data past this many bytes is cut.
+    public var maximumStreamEventByteCount: Int
 
     public init(
         redactedHeaderFields: Set<String> = [
@@ -57,7 +63,9 @@ public struct NetworkLogRedactor: Sendable {
         ],
         maximumBodyByteCount: Int = 32_768,
         capturesRequestBodies: Bool = true,
-        capturesResponseBodies: Bool = true
+        capturesResponseBodies: Bool = true,
+        maximumStreamStringLength: Int = 1_024,
+        maximumStreamEventByteCount: Int = 16_384
     ) {
         self.redactedHeaderFields = Set(redactedHeaderFields.map { $0.lowercased() })
         self.redactedQueryItems = Set(redactedQueryItems.map { $0.lowercased() })
@@ -65,6 +73,8 @@ public struct NetworkLogRedactor: Sendable {
         self.maximumBodyByteCount = max(0, maximumBodyByteCount)
         self.capturesRequestBodies = capturesRequestBodies
         self.capturesResponseBodies = capturesResponseBodies
+        self.maximumStreamStringLength = max(16, maximumStreamStringLength)
+        self.maximumStreamEventByteCount = max(0, maximumStreamEventByteCount)
     }
 
     public static let `default` = NetworkLogRedactor()
@@ -170,6 +180,106 @@ public struct NetworkLogRedactor: Sendable {
             isTruncated: isTruncated,
             contentType: contentType
         )
+    }
+
+    // MARK: - Server-sent events
+
+    /// Redacts one event: JSON keys as for bodies, long strings elided, and any
+    /// streamed answer text pulled out for the viewer to join.
+    func streamEvent(
+        from fields: ServerSentEventFields,
+        id: Int,
+        offset: TimeInterval
+    ) -> NetworkStreamEvent {
+        let byteCount = fields.data.utf8.count
+        var event = NetworkStreamEvent(
+            id: id,
+            offset: offset,
+            event: fields.event,
+            lastEventID: fields.id,
+            type: fields.event,
+            data: "",
+            byteCount: byteCount
+        )
+
+        guard capturesResponseBodies else {
+            event.data = "(not captured: Response body capture is off)"
+            return event
+        }
+
+        if let object = try? JSONSerialization.jsonObject(
+            with: Data(fields.data.utf8),
+            options: [.fragmentsAllowed]
+        ) {
+            var elided = false
+            let redacted = eliding(redactingJSONKeys(in: object), didElide: &elided)
+            if event.type == nil, let type = (redacted as? [String: Any])?["type"] as? String {
+                event.type = type
+            }
+            event.text = Self.streamedText(in: redacted, type: event.type, original: object)
+            if let output = try? JSONSerialization.data(
+                withJSONObject: redacted,
+                options: [.sortedKeys, .fragmentsAllowed, .withoutEscapingSlashes]
+            ) {
+                event.data = String(decoding: output, as: UTF8.self)
+                event.isTruncated = elided
+                return event
+            }
+        }
+
+        if byteCount > maximumStreamEventByteCount {
+            event.data = String(decoding: Data(fields.data.utf8).prefix(maximumStreamEventByteCount), as: UTF8.self)
+            event.isTruncated = true
+        } else {
+            event.data = fields.data
+        }
+        return event
+    }
+
+    private func eliding(_ object: Any, didElide: inout Bool) -> Any {
+        switch object {
+        case let dictionary as [String: Any]:
+            return dictionary.mapValues { eliding($0, didElide: &didElide) }
+        case let array as [Any]:
+            return array.map { eliding($0, didElide: &didElide) }
+        case let string as String where string.utf8.count > maximumStreamStringLength:
+            didElide = true
+            let size = ByteCountFormatter.string(fromByteCount: Int64(string.utf8.count), countStyle: .binary)
+            return "<\(size) elided>"
+        default:
+            return object
+        }
+    }
+
+    /// Text deltas from the shapes chat APIs commonly stream: a top-level
+    /// `content`/`delta`/`text` string, OpenAI's `choices[0].delta.content`, and
+    /// Anthropic's `delta.text`. Events typed as something other than a text
+    /// delta (`activity`, `audio_chunk`, …) contribute nothing.
+    static func streamedText(in redacted: Any, type: String?, original: Any) -> String? {
+        if let type = type?.lowercased() {
+            let isTextual = ["chunk", "delta", "token", "text", "message"].contains { type.contains($0) }
+            let isMedia = ["audio", "image", "video"].contains { type.contains($0) }
+            guard isTextual, !isMedia else { return nil }
+        }
+
+        // Read from the redacted object so a redacted key never leaks through,
+        // but from the original for the value, which elision may have replaced.
+        guard let object = redacted as? [String: Any], let source = original as? [String: Any] else {
+            return nil
+        }
+
+        for key in ["content", "delta", "text"] where (object[key] as? String).map({ $0 != placeholder }) ?? false {
+            if let value = source[key] as? String, !value.isEmpty { return value }
+        }
+        if let choices = source["choices"] as? [[String: Any]],
+           let delta = choices.first?["delta"] as? [String: Any],
+           let content = delta["content"] as? String {
+            return content
+        }
+        if let delta = source["delta"] as? [String: Any], let text = delta["text"] as? String {
+            return text
+        }
+        return nil
     }
 
     private func isTextual(_ text: String, contentType: String?) -> Bool {

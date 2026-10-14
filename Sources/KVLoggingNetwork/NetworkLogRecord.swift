@@ -135,6 +135,8 @@ public struct NetworkLogRecord: Codable, Equatable, Identifiable, Sendable {
     public var metrics: NetworkLogMetrics?
     public var error: LogError?
     public var duration: TimeInterval?
+    /// Parsed events of a `text/event-stream` response, filled in while it streams.
+    public var stream: NetworkStreamLog?
 
     public init(
         id: UUID = UUID(),
@@ -144,7 +146,8 @@ public struct NetworkLogRecord: Codable, Equatable, Identifiable, Sendable {
         response: NetworkLogResponse? = nil,
         metrics: NetworkLogMetrics? = nil,
         error: LogError? = nil,
-        duration: TimeInterval? = nil
+        duration: TimeInterval? = nil,
+        stream: NetworkStreamLog? = nil
     ) {
         self.id = id
         self.startedAt = startedAt
@@ -154,10 +157,20 @@ public struct NetworkLogRecord: Codable, Equatable, Identifiable, Sendable {
         self.metrics = metrics
         self.error = error
         self.duration = duration
+        self.stream = stream
     }
 
     public var statusCode: Int? {
         response?.statusCode
+    }
+
+    /// A server-sent events response (`text/event-stream`).
+    public var isEventStream: Bool {
+        stream != nil || NetworkLogRecord.isEventStream(contentType: response?.body.contentType)
+    }
+
+    static func isEventStream(contentType: String?) -> Bool {
+        contentType?.lowercased().contains("text/event-stream") ?? false
     }
 
     public var isSuccess: Bool {

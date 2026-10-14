@@ -2,6 +2,42 @@
 
 All notable changes to KVLoggingKit are documented in this file.
 
+## 1.2.0 - 2026-10-14
+
+### Added
+
+- Server-sent events support. A `text/event-stream` response is parsed into
+  `NetworkLogRecord.stream` (`NetworkStreamLog` / `NetworkStreamEvent`): one
+  entry per event with its arrival time, type (SSE `event:` or a JSON `"type"`),
+  redacted payload, and any text delta it carries. Under
+  `NetworkLoggingURLProtocol` this happens live: the record gets its status and
+  headers when the response head arrives and new events every 250 ms while the
+  stream is open, instead of a pending row until the connection closes. Long
+  strings (base64 audio, images) are elided past `maximumStreamStringLength`,
+  and a recorder keeps the latest `maximumStreamEvents` (2,000) per response.
+- The console marks streams with an `SSE` / `LIVE` tag and an event count, keeps
+  an open detail screen updating while it streams, and adds an Events tab: the
+  assembled answer, a filter per event type, and every event with its offset,
+  size and an expandable pretty-printed payload.
+
+### Fixed
+
+- Capture callbacks from `NetworkLoggingURLProtocol` are delivered to the
+  recorder in order. Each one used to start its own `Task`, so a completion
+  could overtake the `begin` for the same request.
+
+### Changed
+
+- Reworked the console's Network tab for readability. Rows now line up a
+  colored method badge, the path, host and time, with the status code, duration
+  and response size on the trailing edge. Filters are chips with counts
+  (All / Success / Errors / Pending) plus a host filter when traffic spans
+  several hosts. The detail screen keeps a header card (method, status with
+  reason phrase, URL, duration, size, start time) above the tabs, splits out
+  query parameters, hides empty timing rows, shows headers as a divided list
+  with redacted values highlighted, and labels bodies with content type and
+  size plus a copy button.
+
 ## 1.1.1 - 2026-09-30
 
 ### Fixed

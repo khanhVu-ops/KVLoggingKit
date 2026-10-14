@@ -7,8 +7,9 @@ import SwiftUI
 final class NetworkListModel: ObservableObject {
     enum Filter: String, CaseIterable, Identifiable, Sendable {
         case all = "All"
-        case success = "2xx–3xx"
+        case success = "Success"
         case failure = "Errors"
+        case pending = "Pending"
 
         var id: String { rawValue }
     }
@@ -16,6 +17,7 @@ final class NetworkListModel: ObservableObject {
     @Published private(set) var records: [NetworkLogRecord] = []
     @Published var searchText = ""
     @Published var filter: Filter = .all
+    @Published var selectedHost: String?
 
     private let store: NetworkLogStore
     private var observation: Task<Void, Never>?
@@ -28,25 +30,39 @@ final class NetworkListModel: ObservableObject {
         observation?.cancel()
     }
 
+    var hosts: [String] {
+        Array(Set(records.compactMap(\.request.host))).sorted()
+    }
+
+    func count(for filter: Filter) -> Int {
+        records.filter { matches($0, filter: filter) && matchesHost($0) }.count
+    }
+
     var visibleRecords: [NetworkLogRecord] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         return records.filter { record in
-            switch filter {
-            case .all:
-                break
-            case .success:
-                guard record.isSuccess else { return false }
-            case .failure:
-                let failed = record.error != nil || (record.statusCode.map { $0 >= 400 } ?? false)
-                guard failed else { return false }
-            }
+            guard matches(record, filter: filter), matchesHost(record) else { return false }
 
             guard !query.isEmpty else { return true }
             return record.request.url.lowercased().contains(query)
                 || record.request.method.lowercased().contains(query)
                 || (record.statusCode.map { String($0).contains(query) } ?? false)
         }
+    }
+
+    private func matches(_ record: NetworkLogRecord, filter: Filter) -> Bool {
+        switch filter {
+        case .all: true
+        case .success: record.state != .pending && record.isSuccess
+        case .failure: NetworkLogFormatting.isFailure(record)
+        case .pending: record.state == .pending
+        }
+    }
+
+    private func matchesHost(_ record: NetworkLogRecord) -> Bool {
+        guard let selectedHost else { return true }
+        return record.request.host == selectedHost
     }
 
     /// Same pull-on-signal shape as the log list: the store never copies its

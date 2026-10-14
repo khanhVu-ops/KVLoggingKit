@@ -317,6 +317,7 @@ they capture different things:
 | Overhead | None | One replay `URLSession` per request |
 | Background sessions | Yes | No, `URLProtocol` is ignored there |
 | Suitable for release builds | Yes | Debug only |
+| Server-sent events | Parsed when the response completes | Parsed live, event by event |
 
 Neither mode changes what the app receives: the response is passed through
 untouched.
@@ -353,6 +354,25 @@ This is also what `LogConsole` turns on for you: its network capture scope
 defaults to `.allSessions`. Pass `scope: .sharedSessionOnly` to cover
 `URLSession.shared` without the swizzle, or `.manual` to place `install(in:)`
 calls yourself.
+
+### Server-sent events
+
+A `text/event-stream` response is parsed into events instead of kept as one
+block of text. Under `NetworkLoggingURLProtocol` this happens as the bytes
+arrive, so the console shows a chat reply growing while it streams: status
+and headers as soon as the head arrives, then each event with its arrival time.
+
+Each event is redacted like a JSON body, and strings longer than
+`maximumStreamStringLength` (1 KB by default) become a size marker, so
+base64 audio or image payloads stay out of memory and out of the viewer. Its
+type comes from the SSE `event:` field or, failing that, a `"type"` key in the
+JSON data. Text deltas (`content`, `delta`, `text`, OpenAI's
+`choices[0].delta.content`, Anthropic's `delta.text`) are joined into the
+answer shown at the top of the console's Events tab.
+
+A recorder keeps the latest 2,000 events per response
+(`maximumStreamEvents`) and pushes live updates at most every 250 ms
+(`streamPublishInterval`).
 
 ### Release builds: timing and status only
 

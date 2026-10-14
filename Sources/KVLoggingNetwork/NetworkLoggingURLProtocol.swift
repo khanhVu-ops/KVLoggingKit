@@ -206,6 +206,54 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
     private var capturedMetrics: NetworkLogMetrics?
     private var requestSnapshot: URLRequestSnapshot?
     private var startedAt = Date()
+    private var isEventStream = false
+    private var captureSteps: AsyncStream<CaptureStep>.Continuation?
+
+    /// Capture callbacks, in the order the replay session delivered them.
+    ///
+    /// One `Task` per callback would race: a stream's chunks could reach the
+    /// recorder out of order, or after the exchange was already completed.
+    private enum CaptureStep: Sendable {
+        case begin(URLRequestSnapshot, Date)
+        case response(HTTPResponseSnapshot)
+        case streamData(Data, Date)
+        case complete(
+            URLRequestSnapshot,
+            HTTPResponseSnapshot?,
+            Data?,
+            (any Error)?,
+            NetworkLogMetrics?
+        )
+    }
+
+    private func startCapturePipeline(recorder: NetworkLogRecorder) {
+        var continuation: AsyncStream<CaptureStep>.Continuation?
+        let steps = AsyncStream<CaptureStep>(bufferingPolicy: .unbounded) { continuation = $0 }
+        captureSteps = continuation
+
+        let key = NetworkTaskKey(owner: self, taskIdentifier: 0)
+        Task {
+            for await step in steps {
+                switch step {
+                case let .begin(snapshot, startedAt):
+                    await recorder.begin(key, request: snapshot, startedAt: startedAt)
+                case let .response(response):
+                    await recorder.receive(key, response: response)
+                case let .streamData(data, receivedAt):
+                    await recorder.receiveStreamData(key, data: data, receivedAt: receivedAt)
+                case let .complete(snapshot, response, data, error, metrics):
+                    await recorder.complete(
+                        key,
+                        request: snapshot,
+                        response: response,
+                        responseData: data,
+                        error: error,
+                        metrics: metrics
+                    )
+                }
+            }
+        }
+    }
 
     public override class func canInit(with request: URLRequest) -> Bool {
         guard URLProtocol.property(forKey: handledKey, in: request) == nil else { return false }
@@ -258,12 +306,8 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         let snapshot = URLRequestSnapshot(outgoing, bodyOverride: recordedBody)
         requestSnapshot = snapshot
 
-        let key = NetworkTaskKey(owner: self, taskIdentifier: 0)
-        let recorder = Self.settings.recorder
-        let startedAt = startedAt
-        Task {
-            await recorder.begin(key, request: snapshot, startedAt: startedAt)
-        }
+        startCapturePipeline(recorder: Self.settings.recorder)
+        captureSteps?.yield(.begin(snapshot, startedAt))
 
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
@@ -284,6 +328,8 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     public override func stopLoading() {
+        // Cancelling the replay task still reports completion through the
+        // delegate, which closes the capture pipeline.
         replayTask?.cancel()
         replaySession?.invalidateAndCancel()
         replaySession = nil
@@ -322,7 +368,12 @@ extension NetworkLoggingURLProtocol: URLSessionDataDelegate {
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
-        capturedResponse = HTTPResponseSnapshot(response)
+        let snapshot = HTTPResponseSnapshot(response)
+        capturedResponse = snapshot
+        if let snapshot {
+            isEventStream = NetworkLogRecord.isEventStream(contentType: snapshot.contentType)
+            captureSteps?.yield(.response(snapshot))
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         completionHandler(.allow)
     }
@@ -332,6 +383,14 @@ extension NetworkLoggingURLProtocol: URLSessionDataDelegate {
         dataTask: URLSessionDataTask,
         didReceive data: Data
     ) {
+        if isEventStream {
+            // Parsed as it arrives instead of buffered: a stream can stay open
+            // for minutes, and the console shows its events live.
+            captureSteps?.yield(.streamData(data, Date()))
+            client?.urlProtocol(self, didLoad: data)
+            return
+        }
+
         let limit = Self.settings.maximumCapturedResponseBytes
         if responseData.count + data.count <= limit {
             responseData.append(data)
@@ -355,23 +414,12 @@ extension NetworkLoggingURLProtocol: URLSessionDataDelegate {
         didCompleteWithError error: (any Error)?
     ) {
         if let snapshot = requestSnapshot {
-            let key = NetworkTaskKey(owner: self, taskIdentifier: 0)
-            let recorder = Self.settings.recorder
             let response = capturedResponse ?? HTTPResponseSnapshot(task.response)
             let data = didExceedCaptureLimit ? nil : responseData
-            let metrics = capturedMetrics
-
-            Task {
-                await recorder.complete(
-                    key,
-                    request: snapshot,
-                    response: response,
-                    responseData: data,
-                    error: error,
-                    metrics: metrics
-                )
-            }
+            captureSteps?.yield(.complete(snapshot, response, data, error, capturedMetrics))
         }
+        captureSteps?.finish()
+        captureSteps = nil
 
         if let error {
             client?.urlProtocol(self, didFailWithError: error)

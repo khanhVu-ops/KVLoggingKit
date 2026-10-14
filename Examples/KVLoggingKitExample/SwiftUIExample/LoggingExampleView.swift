@@ -99,6 +99,12 @@ struct LoggingExampleView: View {
                 }
             }
 
+            Button("Stream a chat reply (SSE)", systemImage: "text.bubble") {
+                Task { await networking.streamSampleChat() }
+                LogConsole.present()
+                latestAction = "Streaming a chat reply. Watch its events arrive in the console."
+            }
+
             Button("Open debug console", systemImage: "ladybug") {
                 LogConsole.present()
                 latestAction = "Console opened. Shaking the device opens it too."

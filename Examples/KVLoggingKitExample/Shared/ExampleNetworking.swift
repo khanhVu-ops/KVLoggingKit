@@ -36,6 +36,21 @@ public struct ExampleNetworking: Sendable {
         await get("https://api.example.com/v1/missing")
     }
 
+    /// Reads a server-sent events reply line by line, the way a chat client does.
+    @available(iOS 15.0, macOS 12.0, *)
+    public func streamSampleChat() async {
+        var request = URLRequest(url: URL(string: "https://api.example.com/v1/chat/interact")!)
+        request.httpMethod = "POST"
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"message":"Giá vàng hôm nay?","web_search":true}"#.utf8)
+
+        guard let (bytes, _) = try? await session.bytes(for: request) else { return }
+        do {
+            for try await _ in bytes.lines {}
+        } catch {}
+    }
+
     private func get(_ urlString: String) async {
         var request = URLRequest(url: URL(string: urlString)!)
         request.setValue("Bearer live-access-token", forHTTPHeaderField: "Authorization")
