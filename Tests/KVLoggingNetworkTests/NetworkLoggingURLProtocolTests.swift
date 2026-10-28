@@ -58,6 +58,22 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     }
 }
 
+/// Answers with the request's path, so concurrent responses can be told apart.
+private final class EchoPathURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let url = request.url!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [:])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(url.path.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 final class NetworkLoggingURLProtocolTests: XCTestCase {
     override func tearDown() {
         NetworkLoggingURLProtocol.settings = .init()
@@ -180,6 +196,44 @@ final class NetworkLoggingURLProtocolTests: XCTestCase {
         let captured = await waitForRecord(in: store)
         let record = try XCTUnwrap(captured)
         XCTAssertEqual(record.request.body.text, "streamed payload")
+    }
+
+    // MARK: - Replay session
+
+    /// 1.2.0 built and invalidated a replay session per request. Network.framework
+    /// retires a connection after its task finished, and the task's dealloc then
+    /// read the freed session: `EXC_BAD_ACCESS` in `-[NSURLSessionTask session]`
+    /// on `com.apple.network.connections`. Every request now shares one session
+    /// that is never released, and each callback must still reach its own caller.
+    func testConcurrentRequestsShareOneReplaySessionAndGetTheirOwnResponses() async throws {
+        NetworkLoggingURLProtocol.settings = .init(
+            recorder: NetworkLogRecorder(store: NetworkLogStore()),
+            replayConfiguration: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [EchoPathURLProtocol.self]
+                return configuration
+            }
+        )
+        let replay = NetworkLoggingURLProtocol.replaySession()
+
+        let configuration = URLSessionConfiguration.ephemeral
+        NetworkLoggingURLProtocol.install(in: configuration)
+        let session = URLSession(configuration: configuration)
+
+        let paths = (0..<20).map { "/v1/items/\($0)" }
+        let bodies = try await withThrowingTaskGroup(of: (String, String).self) { group in
+            for path in paths {
+                group.addTask {
+                    let url = URL(string: "https://api.example.com\(path)")!
+                    let (data, _) = try await session.data(from: url)
+                    return (path, String(decoding: data, as: UTF8.self))
+                }
+            }
+            return try await group.reduce(into: [:]) { $0[$1.0] = $1.1 }
+        }
+
+        XCTAssertEqual(bodies, Dictionary(uniqueKeysWithValues: paths.map { ($0, $0) }))
+        XCTAssertTrue(NetworkLoggingURLProtocol.replaySession() === replay)
     }
 
     // MARK: - The body that goes out

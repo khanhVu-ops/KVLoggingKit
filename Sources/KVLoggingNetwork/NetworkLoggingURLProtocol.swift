@@ -54,8 +54,63 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         set {
             settingsLock.lock()
             _settings = newValue
+            _replaySession = nil
             settingsLock.unlock()
         }
+    }
+
+    // MARK: - Replay session
+
+    /// One replay session for every intercepted request, alive for the life of
+    /// the process.
+    ///
+    /// Up to 1.2.0 each request built its own session and invalidated it on
+    /// completion. That crashed on iOS 26 with `EXC_BAD_ACCESS` in
+    /// `objc_retain`, on `com.apple.network.connections`:
+    ///
+    /// ```
+    /// -[NSURLSessionTask session]
+    /// -[__NSCFLocalSessionTask dealloc]
+    /// URLProtocol::~URLProtocol()
+    /// ...
+    /// -[NWConcrete_nw_path_evaluator dealloc]
+    /// nw_association_schedule_deactivation
+    /// ```
+    ///
+    /// Network.framework keeps the connection — and through it the task — for a
+    /// while after the task completes, then tears it down on its own queue. A
+    /// task does not keep its session alive, so by then a throwaway session had
+    /// already been deallocated and the task's dealloc read a dangling pointer.
+    /// It needed a request to finish and its connection to be retired later, so
+    /// it showed up after a few uploads, never on the first request.
+    ///
+    /// A session that is never released cannot dangle. Changing ``settings``
+    /// starts a new one for later requests; the old one is kept in
+    /// `retiredReplaySessions`, not invalidated, for the same reason.
+    nonisolated(unsafe) private static var _replaySession: URLSession?
+    nonisolated(unsafe) private static var retiredReplaySessions: [URLSession] = []
+    private static let replayRouter = ReplayRouter()
+
+    // Internal, not private, so the regression test can check the session is reused.
+    static func replaySession() -> URLSession {
+        settingsLock.lock()
+        defer { settingsLock.unlock() }
+        if let session = _replaySession { return session }
+
+        // An empty protocol list on the replay session makes recursion impossible.
+        let configuration = _settings.replayConfiguration()
+        configuration.protocolClasses = configuration.protocolClasses?.filter {
+            $0 !== NetworkLoggingURLProtocol.self
+        } ?? []
+
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1
+        queue.name = "KVLoggingNetwork.replay"
+
+        let session = URLSession(configuration: configuration, delegate: replayRouter, delegateQueue: queue)
+        _replaySession = session
+        retiredReplaySessions.append(session)
+        return session
     }
 
     private static let handledKey = "KVLoggingNetwork.handled"
@@ -198,7 +253,6 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
 
     // MARK: - URLProtocol
 
-    private var replaySession: URLSession?
     private var replayTask: URLSessionTask?
     private var responseData = Data()
     private var didExceedCaptureLimit = false
@@ -309,20 +363,8 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         startCapturePipeline(recorder: Self.settings.recorder)
         captureSteps?.yield(.begin(snapshot, startedAt))
 
-        let queue = OperationQueue()
-        queue.maxConcurrentOperationCount = 1
-        queue.name = "KVLoggingNetwork.replay"
-
-        // An empty protocol list on the replay session makes recursion impossible.
-        let configuration = Self.settings.replayConfiguration()
-        configuration.protocolClasses = configuration.protocolClasses?.filter {
-            $0 !== NetworkLoggingURLProtocol.self
-        } ?? []
-
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
-        replaySession = session
-
-        let task = session.dataTask(with: outgoing)
+        let task = Self.replaySession().dataTask(with: outgoing)
+        Self.replayRouter.register(self, for: task)
         replayTask = task
         task.resume()
     }
@@ -331,8 +373,6 @@ public final class NetworkLoggingURLProtocol: URLProtocol, @unchecked Sendable {
         // Cancelling the replay task still reports completion through the
         // delegate, which closes the capture pipeline.
         replayTask?.cancel()
-        replaySession?.invalidateAndCancel()
-        replaySession = nil
         replayTask = nil
     }
 
@@ -427,8 +467,50 @@ extension NetworkLoggingURLProtocol: URLSessionDataDelegate {
             client?.urlProtocolDidFinishLoading(self)
         }
 
-        session.finishTasksAndInvalidate()
-        replaySession = nil
         replayTask = nil
+    }
+}
+
+// MARK: - Replay router
+
+/// Delegate of the shared replay session: hands each callback to the protocol
+/// instance that started the task, and holds that instance until the task
+/// completes — what the per-request session's strong delegate used to do.
+private final class ReplayRouter: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var owners: [Int: NetworkLoggingURLProtocol] = [:]
+
+    func register(_ owner: NetworkLoggingURLProtocol, for task: URLSessionTask) {
+        lock.lock()
+        owners[task.taskIdentifier] = owner
+        lock.unlock()
+    }
+
+    private func owner(of task: URLSessionTask, removing: Bool = false) -> NetworkLoggingURLProtocol? {
+        lock.lock()
+        defer { lock.unlock() }
+        return removing ? owners.removeValue(forKey: task.taskIdentifier) : owners[task.taskIdentifier]
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let owner = owner(of: dataTask) else { return completionHandler(.cancel) }
+        owner.urlSession(session, dataTask: dataTask, didReceive: response, completionHandler: completionHandler)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        owner(of: dataTask)?.urlSession(session, dataTask: dataTask, didReceive: data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        owner(of: task)?.urlSession(session, task: task, didFinishCollecting: metrics)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        owner(of: task, removing: true)?.urlSession(session, task: task, didCompleteWithError: error)
     }
 }

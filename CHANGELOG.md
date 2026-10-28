@@ -2,6 +2,18 @@
 
 All notable changes to KVLoggingKit are documented in this file.
 
+## 1.2.1 - 2026-10-28
+
+### Fixed
+
+- `NetworkLoggingURLProtocol` crashed the app with `EXC_BAD_ACCESS` in
+  `objc_retain` on `com.apple.network.connections`, from
+  `-[__NSCFLocalSessionTask dealloc]`. Each intercepted request replayed through
+  its own `URLSession`, invalidated on completion; Network.framework retires the
+  connection later, and the task's dealloc then read the freed session. It took
+  a few requests to show, typically after an upload. Every request now replays
+  through one shared session that is never released.
+
 ## 1.2.0 - 2026-10-14
 
 ### Added
